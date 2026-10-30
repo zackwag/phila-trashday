@@ -3,6 +3,7 @@ name: Release Please
 on:
   push:
     branches: [main]
+  workflow_dispatch: {}
 
 permissions:
   contents: write
@@ -14,3 +15,8 @@ jobs:
     steps:
       - name: Create / update release PR, or tag + publish a GitHub Release
         uses: googleapis/release-please-action@v5
+        with:
+          # A personal token, not GITHUB_TOKEN: GitHub doesn't start other
+          # workflows for releases or PRs made with GITHUB_TOKEN, so release.yml
+          # would never run and the release PR's checks would never report.
+          token: ${{ secrets.RELEASE_PLEASE_TOKEN }}
