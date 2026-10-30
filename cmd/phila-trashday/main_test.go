@@ -43,6 +43,25 @@ func TestLoadConfig(t *testing.T) {
 	}
 }
 
+func TestPublicURL(t *testing.T) {
+	tests := map[string]string{
+		"":                                     "",
+		"https://zackwag.com/public/trashday/": "https://zackwag.com/public/trashday",
+		"http://192.168.4.70:3138":             "http://192.168.4.70:3138",
+	}
+	for in, want := range tests {
+		cfg, err := loadConfig(env(map[string]string{"PUBLIC_URL": in}))
+		if err != nil || cfg.publicURL != want {
+			t.Errorf("PUBLIC_URL=%q: got %q, %v, want %q", in, cfg.publicURL, err, want)
+		}
+	}
+	for _, bad := range []string{"zackwag.com/trashday", "ftp://zackwag.com", "https://", "https://x.com/?a=b", "https://x.com/#top", "http://[::1"} {
+		if _, err := loadConfig(env(map[string]string{"PUBLIC_URL": bad})); err == nil || !strings.Contains(err.Error(), "PUBLIC_URL") {
+			t.Errorf("PUBLIC_URL=%q: err = %v, want one about PUBLIC_URL", bad, err)
+		}
+	}
+}
+
 func TestLoadConfigErrors(t *testing.T) {
 	tests := map[string]map[string]string{
 		"REFRESH_INTERVAL": {"REFRESH_INTERVAL": "daily"},

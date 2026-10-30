@@ -171,12 +171,15 @@ type savedJSON struct {
 	Label     string    `json:"label"`
 	Default   bool      `json:"default"`
 	CreatedAt time.Time `json:"created_at"`
-	// Feed is the path of the address's calendar feed.
+	// Feed is the path of the address's calendar feed on this server.
 	Feed string `json:"feed"`
+	// PublicFeed is the feed's URL from outside the network, when
+	// Config.PublicURL is set.
+	PublicFeed string `json:"public_feed,omitempty"`
 }
 
-func toSavedJSON(a Saved, isDefault bool) savedJSON {
-	return savedJSON{
+func (s *Service) toSavedJSON(a Saved, isDefault bool) savedJSON {
+	out := savedJSON{
 		ID:        a.ID.String(),
 		Address:   a.Address,
 		Label:     a.Label,
@@ -184,12 +187,19 @@ func toSavedJSON(a Saved, isDefault bool) savedJSON {
 		CreatedAt: a.CreatedAt,
 		Feed:      "/a/" + a.ID.String() + "/schedule.ics",
 	}
+	if s.cfg.PublicURL != "" {
+		out.PublicFeed = s.cfg.PublicURL + out.Feed
+	}
+	return out
 }
 
 type savedListJSON struct {
 	Addresses []savedJSON `json:"addresses"`
 	// Saving reports whether addresses can be saved and changed.
 	Saving bool `json:"saving"`
+	// PublicURL is Config.PublicURL, so the page can tell whether saving
+	// an address would give it a public feed.
+	PublicURL string `json:"public_url,omitempty"`
 }
 
 // savedRequest is the body of a POST or PATCH. Fields left out of a PATCH
@@ -202,9 +212,13 @@ type savedRequest struct {
 
 func (s *Service) listSaved(w http.ResponseWriter, _ *http.Request) {
 	list, def := s.savedList()
-	out := savedListJSON{Addresses: make([]savedJSON, len(list)), Saving: s.cfg.AddressesFile != ""}
+	out := savedListJSON{
+		Addresses: make([]savedJSON, len(list)),
+		Saving:    s.cfg.AddressesFile != "",
+		PublicURL: s.cfg.PublicURL,
+	}
 	for i, a := range list {
-		out.Addresses[i] = toSavedJSON(a, a.ID == def)
+		out.Addresses[i] = s.toSavedJSON(a, a.ID == def)
 	}
 	s.writeJSON(w, http.StatusOK, out)
 }
@@ -294,7 +308,7 @@ func (s *Service) addSaved(w http.ResponseWriter, r *http.Request) {
 	})
 	if errors.Is(err, errAlreadySaved) {
 		_, isDefault, _ := s.findSaved(func(a Saved) bool { return a.ID == existing.ID })
-		s.writeJSON(w, http.StatusOK, toSavedJSON(*existing, isDefault))
+		s.writeJSON(w, http.StatusOK, s.toSavedJSON(*existing, isDefault))
 		return
 	}
 	if err != nil {
@@ -302,7 +316,7 @@ func (s *Service) addSaved(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_, isDefault, _ := s.findSaved(func(a Saved) bool { return a.ID == added.ID })
-	s.writeJSON(w, http.StatusCreated, toSavedJSON(added, isDefault))
+	s.writeJSON(w, http.StatusCreated, s.toSavedJSON(added, isDefault))
 }
 
 // updateSaved changes a saved address's label, address or default status.
@@ -352,7 +366,7 @@ func (s *Service) updateSaved(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_, isDefault, _ := s.findSaved(func(a Saved) bool { return a.ID == updated.ID })
-	s.writeJSON(w, http.StatusOK, toSavedJSON(updated, isDefault))
+	s.writeJSON(w, http.StatusOK, s.toSavedJSON(updated, isDefault))
 }
 
 // removeSaved forgets a saved address. Its URLs stop working. If it was

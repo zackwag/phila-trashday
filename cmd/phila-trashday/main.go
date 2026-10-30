@@ -7,6 +7,7 @@
 //
 //	HOLIDAYS_FILE     optional extra holidays, one YYYY-MM-DD per line, on top of the city's computed ones (default /config/holidays.txt)
 //	ADDRESSES_FILE    where saved addresses are kept (default /data/addresses.json)
+//	PUBLIC_URL        where a reverse proxy serves saved addresses' feeds publicly, like https://example.com/trashday (optional)
 //	ALARM_TIME        when feeds alert the evening before a pickup, as HH:MM, or "off" (default 20:00)
 //	REFRESH_INTERVAL  how long an address lookup is reused, and how often the extra holidays file is re-read (default 6h)
 //	LISTEN_ADDR       where to serve (default :8080)
@@ -21,8 +22,10 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 	_ "time/tzdata" // the image is FROM scratch, so it has no zoneinfo
@@ -38,6 +41,7 @@ var version = "dev"
 type config struct {
 	holidaysFile  string
 	addressesFile string
+	publicURL     string
 	alarm         *time.Duration
 	refresh       time.Duration
 	listenAddr    string
@@ -73,6 +77,7 @@ func run(logger *slog.Logger) error {
 		},
 		HolidaysFile:  cfg.holidaysFile,
 		AddressesFile: cfg.addressesFile,
+		PublicURL:     cfg.publicURL,
 		Alarm:         cfg.alarm,
 		Refresh:       cfg.refresh,
 		Location:      loc,
@@ -116,6 +121,14 @@ func loadConfig(getenv func(string) string) (config, error) {
 		holidaysFile:  or(getenv("HOLIDAYS_FILE"), "/config/holidays.txt"),
 		addressesFile: or(getenv("ADDRESSES_FILE"), "/data/addresses.json"),
 		listenAddr:    or(getenv("LISTEN_ADDR"), ":8080"),
+	}
+
+	if raw := getenv("PUBLIC_URL"); raw != "" {
+		u, err := url.Parse(raw)
+		if err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" || u.RawQuery != "" || u.Fragment != "" {
+			return config{}, fmt.Errorf("PUBLIC_URL must be an http or https URL with no query, like https://example.com/trashday, not %q", raw)
+		}
+		cfg.publicURL = strings.TrimSuffix(u.String(), "/")
 	}
 
 	refresh, err := time.ParseDuration(or(getenv("REFRESH_INTERVAL"), "6h"))
