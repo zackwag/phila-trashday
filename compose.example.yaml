@@ -1,0 +1,13 @@
+services:
+  phila-trashday:
+    image: zackwag/phila-trashday:latest
+    container_name: phila-trashday
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./holidays.txt:/config/holidays.txt:ro
+      - phila-trashday-data:/data
+
+volumes:
+  phila-trashday-data:

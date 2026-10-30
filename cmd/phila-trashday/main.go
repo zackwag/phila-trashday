@@ -1,0 +1,160 @@
+// Command phila-trashday serves Philadelphia trash and recycling schedules
+// on the LAN: a web page at /, JSON at /schedule.json and an iCalendar feed
+// at /schedule.ics, for any address or for the saved home address.
+//
+// It's configured with environment variables:
+//
+//	HOLIDAYS_FILE     the city's holidays, one YYYY-MM-DD per line (default /config/holidays.txt)
+//	ADDRESS_FILE      where the home address is saved (default /data/address.txt)
+//	ALARM_TIME        when feeds alert the evening before a pickup, as HH:MM, or "off" (default 20:00)
+//	REFRESH_INTERVAL  how long an address lookup is reused, and how often holidays are re-read (default 6h)
+//	LISTEN_ADDR       where to serve (default :8080)
+//
+// "phila-trashday healthcheck" checks a running instance's /healthz, for
+// Docker's HEALTHCHECK in an image with no shell or curl.
+package main
+
+import (
+	"context"
+	"fmt"
+	"log/slog"
+	"net"
+	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
+	_ "time/tzdata" // the image is FROM scratch, so it has no zoneinfo
+
+	"github.com/zackwag/phila-trashday/internal/ais"
+	"github.com/zackwag/phila-trashday/internal/server"
+	"github.com/zackwag/phila-trashday/internal/web"
+)
+
+// version is set at build time with -ldflags "-X main.version=...".
+var version = "dev"
+
+type config struct {
+	holidaysFile string
+	addressFile  string
+	alarm        *time.Duration
+	refresh      time.Duration
+	listenAddr   string
+}
+
+func main() {
+	if len(os.Args) > 1 && os.Args[1] == "healthcheck" {
+		os.Exit(healthcheck(os.Getenv("LISTEN_ADDR")))
+	}
+
+	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+	if err := run(logger); err != nil {
+		logger.Error("exiting", "err", err)
+		os.Exit(1)
+	}
+}
+
+func run(logger *slog.Logger) error {
+	cfg, err := loadConfig(os.Getenv)
+	if err != nil {
+		return err
+	}
+	loc, err := time.LoadLocation("America/New_York")
+	if err != nil {
+		return fmt.Errorf("load Philadelphia's time zone: %w", err)
+	}
+
+	svc := server.New(server.Config{
+		Fetcher: &ais.Client{
+			HTTP:      &http.Client{Timeout: 30 * time.Second},
+			BaseURL:   ais.DefaultBaseURL,
+			UserAgent: "phila-trashday/" + version + " (+https://github.com/zackwag/phila-trashday)",
+		},
+		HolidaysFile: cfg.holidaysFile,
+		AddressFile:  cfg.addressFile,
+		Alarm:        cfg.alarm,
+		Refresh:      cfg.refresh,
+		Location:     loc,
+		Logger:       logger,
+		Site:         web.Handler(),
+	})
+	if err := svc.LoadHome(); err != nil {
+		return err
+	}
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	go svc.Run(ctx)
+
+	srv := &http.Server{
+		Addr:              cfg.listenAddr,
+		Handler:           svc.Handler(),
+		ReadHeaderTimeout: 10 * time.Second,
+	}
+	errc := make(chan error, 1)
+	go func() {
+		logger.Info("serving", "addr", cfg.listenAddr, "home", svc.Home(), "version", version)
+		errc <- srv.ListenAndServe()
+	}()
+
+	select {
+	case err := <-errc:
+		return fmt.Errorf("serve: %w", err)
+	case <-ctx.Done():
+	}
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := srv.Shutdown(shutdownCtx); err != nil {
+		return fmt.Errorf("shut down: %w", err)
+	}
+	return nil
+}
+
+func loadConfig(getenv func(string) string) (config, error) {
+	cfg := config{
+		holidaysFile: or(getenv("HOLIDAYS_FILE"), "/config/holidays.txt"),
+		addressFile:  or(getenv("ADDRESS_FILE"), "/data/address.txt"),
+		listenAddr:   or(getenv("LISTEN_ADDR"), ":8080"),
+	}
+
+	refresh, err := time.ParseDuration(or(getenv("REFRESH_INTERVAL"), "6h"))
+	if err != nil || refresh < time.Minute {
+		return config{}, fmt.Errorf("REFRESH_INTERVAL must be a duration of at least 1m, like 6h, not %q", getenv("REFRESH_INTERVAL"))
+	}
+	cfg.refresh = refresh
+
+	cfg.alarm, err = server.ParseAlarm(or(getenv("ALARM_TIME"), "20:00"))
+	if err != nil {
+		return config{}, fmt.Errorf("ALARM_TIME: %w", err)
+	}
+	return cfg, nil
+}
+
+// healthcheck asks the instance listening on listenAddr for /healthz and
+// returns the exit code: 0 if it answers 200, 1 if not.
+func healthcheck(listenAddr string) int {
+	_, port, err := net.SplitHostPort(or(listenAddr, ":8080"))
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "healthcheck:", err)
+		return 1
+	}
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Get("http://" + net.JoinHostPort("127.0.0.1", port) + "/healthz")
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "healthcheck:", err)
+		return 1
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		fmt.Fprintln(os.Stderr, "healthcheck:", resp.Status)
+		return 1
+	}
+	return 0
+}
+
+func or(s, fallback string) string {
+	if s == "" {
+		return fallback
+	}
+	return s
+}

@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Trash night</title>
+  <meta name="description" content="When to put out trash and recycling in Philadelphia, and a calendar feed of every pickup.">
+  <meta name="theme-color" content="#eef0f1" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#161b20" media="(prefers-color-scheme: dark)">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="preload" href="/fonts/overpass-latin-wght.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="/style.css">
+  <script type="module" src="/app.js"></script>
+</head>
+<body>
+  <header class="masthead">
+    <a class="wordmark" href="/">Trash night</a>
+    <div class="place" id="place" hidden>
+      <span class="place-address" id="place-address"></span>
+      <button type="button" class="text-button" id="change">Change</button>
+    </div>
+  </header>
+
+  <main>
+    <section class="hero" id="hero">
+      <div class="hero-inner">
+        <div id="search-view">
+          <h1 class="answer">When&rsquo;s trash night?</h1>
+          <p class="lede">Enter a Philadelphia address to see when to put out trash and recycling.</p>
+          <form class="search" id="search-form" role="search" autocomplete="off" novalidate>
+            <label class="visually-hidden" for="address">Address</label>
+            <div class="combo">
+              <input id="address" name="address" type="text" inputmode="search" spellcheck="false"
+                placeholder="1830 Fitzwater St" role="combobox" aria-autocomplete="list"
+                aria-expanded="false" aria-controls="suggestions" required>
+              <ul class="suggestions" id="suggestions" role="listbox" aria-label="Matching addresses" hidden></ul>
+            </div>
+            <button type="submit" class="button" id="show">Show schedule</button>
+          </form>
+          <p class="error" id="search-error" role="alert" hidden></p>
+        </div>
+
+        <div id="answer-view" aria-live="polite" hidden>
+          <h1 class="answer" id="answer"></h1>
+          <p class="instruction" id="instruction"></p>
+          <p class="when" id="when"></p>
+        </div>
+      </div>
+    </section>
+
+    <div class="details" id="details" hidden>
+      <section class="block" aria-labelledby="upcoming-heading">
+        <h2 id="upcoming-heading">Coming up</h2>
+        <div id="upcoming"></div>
+        <button type="button" class="text-button" id="more" hidden>Show the rest of the year</button>
+      </section>
+
+      <section class="block" id="holidays-block" aria-labelledby="holidays-heading" hidden>
+        <h2 id="holidays-heading">Holidays</h2>
+        <p class="note">A weekday holiday moves that week&rsquo;s pickup a day later and skips the week&rsquo;s second trash pickup.</p>
+        <ul class="holidays" id="holidays"></ul>
+      </section>
+
+      <section class="block" aria-labelledby="feed-heading">
+        <h2 id="feed-heading">Add it to your calendar</h2>
+        <p class="note">Subscribe once and every pickup shows up, including the ones holidays move.</p>
+        <div class="field">
+          <label for="alarm">Remind me the night before at</label>
+          <select id="alarm">
+            <option value="18:00">6:00 PM</option>
+            <option value="19:00">7:00 PM</option>
+            <option value="20:00" selected>8:00 PM</option>
+            <option value="21:00">9:00 PM</option>
+            <option value="22:00">10:00 PM</option>
+            <option value="off">Don&rsquo;t remind me</option>
+          </select>
+        </div>
+        <div class="feed">
+          <label class="visually-hidden" for="feed-url">Calendar link</label>
+          <input id="feed-url" type="text" readonly>
+          <button type="button" class="button button-quiet" id="copy">Copy link</button>
+        </div>
+        <p class="actions">
+          <a class="button" id="subscribe" href="#">Add to Calendar</a>
+          <a class="text-link" id="json-link" href="#">Schedule as JSON</a>
+        </p>
+        <p class="note">On a Mac, choose <strong>On My Mac</strong> when Calendar asks where to add it. Calendars kept in iCloud are refreshed by Apple&rsquo;s servers, which can&rsquo;t reach this one.</p>
+
+        <div class="home" id="home" hidden>
+          <p class="home-status" id="home-status"></p>
+          <button type="button" class="button button-quiet" id="home-save" hidden>Save as home address</button>
+          <button type="button" class="text-button" id="home-forget" hidden>Forget home address</button>
+          <p class="error" id="home-error" role="alert" hidden></p>
+        </div>
+      </section>
+
+      <p class="warnings" id="warnings" hidden></p>
+    </div>
+  </main>
+
+  <footer class="footer">
+    <p>Pickup days come from the City of Philadelphia&rsquo;s address records. This site isn&rsquo;t run by the City.</p>
+  </footer>
+</body>
+</html>
