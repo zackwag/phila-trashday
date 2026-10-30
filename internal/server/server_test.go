@@ -14,6 +14,7 @@ import (
 	"sync"
 	"testing"
 	"time"
+	"uuid"
 
 	"github.com/zackwag/phila-trashday/internal/ais"
 	"github.com/zackwag/phila-trashday/internal/schedule"
@@ -38,6 +39,8 @@ type fakeFetcher struct {
 	known map[string]ais.Property
 	err   error
 	calls map[string]int
+	// hook, if set, runs at the start of every lookup, without mu held.
+	hook func(address string)
 }
 
 func newFakeFetcher() *fakeFetcher {
@@ -55,6 +58,12 @@ func newFakeFetcher() *fakeFetcher {
 }
 
 func (f *fakeFetcher) Lookup(ctx context.Context, address string) (ais.Property, error) {
+	f.mu.Lock()
+	hook := f.hook
+	f.mu.Unlock()
+	if hook != nil {
+		hook(address)
+	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.calls[address]++
@@ -90,7 +99,7 @@ type fixture struct {
 	svc      *Service
 	fetcher  *fakeFetcher
 	holidays string
-	address  string
+	saved    string
 	now      time.Time
 }
 
@@ -102,17 +111,17 @@ func newFixture(t *testing.T, opts ...func(*Config)) *fixture {
 		t:        t,
 		fetcher:  newFakeFetcher(),
 		holidays: filepath.Join(dir, "holidays.txt"),
-		address:  filepath.Join(dir, "address.txt"),
+		saved:    filepath.Join(dir, "addresses.json"),
 		now:      time.Date(2026, 10, 30, 12, 0, 0, 0, philly),
 	}
 	cfg := Config{
-		Fetcher:      f.fetcher,
-		HolidaysFile: f.holidays,
-		AddressFile:  f.address,
-		Alarm:        &alarm,
-		Refresh:      6 * time.Hour,
-		Location:     philly,
-		Now:          func() time.Time { return f.now },
+		Fetcher:       f.fetcher,
+		HolidaysFile:  f.holidays,
+		AddressesFile: f.saved,
+		Alarm:         &alarm,
+		Refresh:       6 * time.Hour,
+		Location:      philly,
+		Now:           func() time.Time { return f.now },
 	}
 	for _, opt := range opts {
 		opt(&cfg)
@@ -148,13 +157,18 @@ func (f *fixture) get(path string) *httptest.ResponseRecorder {
 	return f.do(http.MethodGet, path, "", "")
 }
 
-func (f *fixture) putHome(address string) *httptest.ResponseRecorder {
+// save posts an address to /api/addresses, with a label if it isn't empty.
+func (f *fixture) save(address, label string) *httptest.ResponseRecorder {
 	f.t.Helper()
-	body, err := json.Marshal(homeJSON{Address: address})
+	req := savedRequest{Address: &address}
+	if label != "" {
+		req.Label = &label
+	}
+	body, err := json.Marshal(req)
 	if err != nil {
 		f.t.Fatal(err)
 	}
-	return f.do(http.MethodPut, "/api/home", "application/json", string(body))
+	return f.do(http.MethodPost, "/api/addresses", "application/json", string(body))
 }
 
 func decode[T any](t *testing.T, rec *httptest.ResponseRecorder) T {
@@ -396,140 +410,6 @@ func TestICSAlarmParameter(t *testing.T) {
 	}
 }
 
-func TestHomeAddress(t *testing.T) {
-	f := newFixture(t)
-
-	if got := decode[homeJSON](t, f.get("/api/home")); got.Address != "" || !got.Saving {
-		t.Errorf("home before saving = %+v, want none with saving on", got)
-	}
-
-	rec := f.putHome("1830 fitzwater street")
-	if rec.Code != http.StatusOK {
-		t.Fatalf("PUT /api/home = %d: %s", rec.Code, rec.Body)
-	}
-	if got := decode[homeJSON](t, rec); got.Address != "1830 FITZWATER ST" {
-		t.Errorf("saved %q, want the city's form of the address", got.Address)
-	}
-	if b, err := os.ReadFile(f.address); err != nil || string(b) != "1830 FITZWATER ST\n" {
-		t.Errorf("address file = %q, %v", b, err)
-	}
-
-	// Requests without an address use the home address.
-	if got := decode[scheduleJSON](t, f.get("/schedule.json")); got.Address != "1830 FITZWATER ST" {
-		t.Errorf("schedule without an address is for %q, want the home address", got.Address)
-	}
-	if rec := f.get("/schedule.ics"); !strings.Contains(rec.Body.String(), "1830-fitzwater-st@phila-trashday") {
-		t.Errorf("feed without an address isn't the home address's: %d", rec.Code)
-	}
-
-	// A new service reads it back.
-	again := New(Config{Fetcher: f.fetcher, AddressFile: f.address})
-	if err := again.LoadHome(); err != nil || again.Home() != "1830 FITZWATER ST" {
-		t.Errorf("LoadHome() = %v, home %q", err, again.Home())
-	}
-
-	rec = f.do(http.MethodDelete, "/api/home", "", "")
-	if rec.Code != http.StatusNoContent {
-		t.Fatalf("DELETE /api/home = %d: %s", rec.Code, rec.Body)
-	}
-	if _, err := os.Stat(f.address); !os.IsNotExist(err) {
-		t.Errorf("address file still there after forgetting: %v", err)
-	}
-	if rec := f.get("/schedule.json"); rec.Code != http.StatusBadRequest {
-		t.Errorf("schedule without an address after forgetting = %d, want 400", rec.Code)
-	}
-	if rec := f.do(http.MethodDelete, "/api/home", "", ""); rec.Code != http.StatusNoContent {
-		t.Errorf("forgetting twice = %d, want 204", rec.Code)
-	}
-}
-
-func TestSaveHomeErrors(t *testing.T) {
-	f := newFixture(t)
-	tests := []struct {
-		name        string
-		contentType string
-		body        string
-		status      int
-	}{
-		{"form post", "application/x-www-form-urlencoded", "address=1830+FITZWATER+ST", http.StatusUnsupportedMediaType},
-		{"bad JSON", "application/json", "{", http.StatusBadRequest},
-		{"too big", "application/json", `{"address":"` + strings.Repeat("A", 2000) + `"}`, http.StatusBadRequest},
-		{"bad address", "application/json", `{"address":"<script>"}`, http.StatusBadRequest},
-		{"unknown address", "application/json", `{"address":"1 NOWHERE ST"}`, http.StatusNotFound},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if rec := f.do(http.MethodPut, "/api/home", tt.contentType, tt.body); rec.Code != tt.status {
-				t.Errorf("PUT = %d %s, want %d", rec.Code, rec.Body, tt.status)
-			}
-		})
-	}
-	if f.svc.Home() != "" {
-		t.Errorf("home = %q after failed saves, want none", f.svc.Home())
-	}
-}
-
-func TestSaveHomeWriteFailures(t *testing.T) {
-	t.Run("missing directory", func(t *testing.T) {
-		f := newFixture(t, func(c *Config) { c.AddressFile = filepath.Join(t.TempDir(), "missing", "address.txt") })
-		rec := f.putHome("1830 FITZWATER ST")
-		if rec.Code != http.StatusInternalServerError || !strings.Contains(rec.Body.String(), "writable") {
-			t.Errorf("PUT = %d %s, want 500 explaining the directory", rec.Code, rec.Body)
-		}
-	})
-
-	t.Run("can't replace", func(t *testing.T) {
-		// A non-empty directory where the file should be can be neither
-		// renamed over nor removed.
-		dir := filepath.Join(t.TempDir(), "address.txt")
-		if err := os.MkdirAll(filepath.Join(dir, "child"), 0o700); err != nil {
-			t.Fatal(err)
-		}
-		f := newFixture(t, func(c *Config) { c.AddressFile = dir })
-		if rec := f.putHome("1830 FITZWATER ST"); rec.Code != http.StatusInternalServerError {
-			t.Errorf("PUT = %d, want 500", rec.Code)
-		}
-		if rec := f.do(http.MethodDelete, "/api/home", "", ""); rec.Code != http.StatusInternalServerError {
-			t.Errorf("DELETE = %d, want 500", rec.Code)
-		}
-		if err := f.svc.LoadHome(); err == nil {
-			t.Error("LoadHome() of a directory succeeded")
-		}
-	})
-}
-
-func TestSavingTurnedOff(t *testing.T) {
-	f := newFixture(t, func(c *Config) { c.AddressFile = "" })
-	if got := decode[homeJSON](t, f.get("/api/home")); got.Saving {
-		t.Error("saving = true with no AddressFile")
-	}
-	if rec := f.putHome("1830 FITZWATER ST"); rec.Code != http.StatusNotImplemented {
-		t.Errorf("PUT = %d, want 501", rec.Code)
-	}
-	if rec := f.do(http.MethodDelete, "/api/home", "", ""); rec.Code != http.StatusNotImplemented {
-		t.Errorf("DELETE = %d, want 501", rec.Code)
-	}
-	if err := f.svc.LoadHome(); err != nil {
-		t.Errorf("LoadHome() = %v, want nothing to load", err)
-	}
-}
-
-func TestLoadHome(t *testing.T) {
-	dir := t.TempDir()
-	missing := New(Config{AddressFile: filepath.Join(dir, "none.txt")})
-	if err := missing.LoadHome(); err != nil || missing.Home() != "" {
-		t.Errorf("missing file: %v, home %q", err, missing.Home())
-	}
-
-	bad := filepath.Join(dir, "bad.txt")
-	if err := os.WriteFile(bad, []byte("<script>\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := New(Config{AddressFile: bad}).LoadHome(); err == nil || !strings.Contains(err.Error(), "bad.txt") {
-		t.Errorf("bad file: %v, want an error naming it", err)
-	}
-}
-
 func TestHealth(t *testing.T) {
 	f := newFixture(t)
 	if rec := f.get("/healthz"); rec.Code != http.StatusOK || decode[healthJSON](t, rec).Status != "ok" {
@@ -650,12 +530,16 @@ func TestRun(t *testing.T) {
 }
 
 func TestSite(t *testing.T) {
-	site := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = w.Write([]byte("the page"))
+	site := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("the page at " + r.URL.Path))
 	})
 	f := newFixture(t, func(c *Config) { c.Site = site })
-	if body := f.get("/").Body.String(); body != "the page" {
+	if body := f.get("/").Body.String(); body != "the page at /" {
 		t.Errorf("GET / = %q, want the site", body)
+	}
+	// A saved address's page is the site's page.
+	if body := f.get("/a/" + uuid.NewV4().String()).Body.String(); body != "the page at /" {
+		t.Errorf("GET /a/{id} = %q, want the site's page", body)
 	}
 	if rec := f.get("/schedule.json?address=1830+FITZWATER+ST"); rec.Code != http.StatusOK {
 		t.Errorf("API behind the site = %d", rec.Code)

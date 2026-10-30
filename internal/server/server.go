@@ -1,8 +1,9 @@
 // Package server serves Philadelphia trash and recycling schedules for any
 // address, as JSON and as iCalendar feeds. Addresses are looked up on
-// request and remembered for a while, the city's holidays come from a file
-// that's re-read in the background, and one home address can be saved to a
-// file and used when a request doesn't name one.
+// request and remembered for a while, and the city's holidays come from a
+// file that's re-read in the background. Addresses can be saved under
+// random IDs, each with its own stable URLs, and one of them is the default
+// for requests that don't name an address.
 package server
 
 import (
@@ -18,6 +19,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"uuid"
 
 	"github.com/zackwag/phila-trashday/internal/ais"
 	"github.com/zackwag/phila-trashday/internal/ical"
@@ -67,9 +69,9 @@ type Config struct {
 	// HolidaysFile is re-read every Refresh, so edits take effect without a
 	// restart. A missing file means no holidays.
 	HolidaysFile string
-	// AddressFile is where the home address is saved. Empty turns saving
+	// AddressesFile is where saved addresses are kept. Empty turns saving
 	// off.
-	AddressFile string
+	AddressesFile string
 	// Alarm is the feed's alert, relative to the start of the pickup day,
 	// when the feed URL doesn't choose one. Nil means no alert.
 	Alarm *time.Duration
@@ -104,9 +106,11 @@ type Service struct {
 	lookupsMu sync.Mutex
 	lookups   map[string]*lookup
 
-	// homeMu guards home and serializes writes to cfg.AddressFile.
-	homeMu sync.Mutex
-	home   string
+	// savedMu guards saved and defaultID, and serializes writes to
+	// cfg.AddressesFile.
+	savedMu   sync.Mutex
+	saved     []Saved
+	defaultID uuid.UUID
 }
 
 // lookup is what's known about one address. Its mu is held while the city
@@ -126,8 +130,8 @@ type lookup struct {
 	usedAt time.Time
 }
 
-// New returns a Service with no holidays or home address loaded. Call
-// ReloadHolidays or Run, and LoadHome, to load them.
+// New returns a Service with no holidays or saved addresses loaded. Call
+// ReloadHolidays or Run, and LoadSaved, to load them.
 func New(cfg Config) *Service {
 	if cfg.Now == nil {
 		cfg.Now = time.Now
@@ -201,71 +205,6 @@ func (s *Service) loadHolidays() (holidays schedule.Holidays, missing bool, err 
 	return holidays, false, nil
 }
 
-// errNoSaving means cfg.AddressFile is empty.
-var errNoSaving = errors.New("saving a home address is turned off")
-
-// LoadHome reads the saved home address. A missing file means none is
-// saved.
-func (s *Service) LoadHome() error {
-	if s.cfg.AddressFile == "" {
-		return nil
-	}
-	b, err := os.ReadFile(s.cfg.AddressFile)
-	if errors.Is(err, fs.ErrNotExist) {
-		return nil
-	}
-	if err != nil {
-		return fmt.Errorf("read home address: %w", err)
-	}
-	address, err := cleanAddress(string(b))
-	if err != nil {
-		return fmt.Errorf("%s: %w", s.cfg.AddressFile, err)
-	}
-
-	s.homeMu.Lock()
-	defer s.homeMu.Unlock()
-	s.home = address
-	return nil
-}
-
-// Home returns the saved home address, or "" if none is saved.
-func (s *Service) Home() string {
-	s.homeMu.Lock()
-	defer s.homeMu.Unlock()
-	return s.home
-}
-
-// setHome saves address as the home address, or forgets it if address is
-// empty. The file is written next to its final name and renamed into
-// place, so a crash can't leave half an address in it. homeMu serializes
-// writers, so one temporary name is enough.
-func (s *Service) setHome(address string) error {
-	if s.cfg.AddressFile == "" {
-		return errNoSaving
-	}
-	s.homeMu.Lock()
-	defer s.homeMu.Unlock()
-
-	if address == "" {
-		if err := os.Remove(s.cfg.AddressFile); err != nil && !errors.Is(err, fs.ErrNotExist) {
-			return fmt.Errorf("forget home address: %w", err)
-		}
-		s.home = ""
-		return nil
-	}
-
-	tmp := s.cfg.AddressFile + ".tmp"
-	if err := os.WriteFile(tmp, []byte(address+"\n"), 0o644); err != nil {
-		return fmt.Errorf("save home address: %w", err)
-	}
-	if err := os.Rename(tmp, s.cfg.AddressFile); err != nil {
-		_ = os.Remove(tmp)
-		return fmt.Errorf("save home address: %w", err)
-	}
-	s.home = address
-	return nil
-}
-
 // errBadAddress is wrapped by the errors cleanAddress returns.
 var errBadAddress = errors.New("bad address")
 
@@ -275,7 +214,7 @@ func cleanAddress(address string) (string, error) {
 	address = strings.Join(strings.Fields(strings.ToUpper(address)), " ")
 	switch {
 	case address == "":
-		return "", fmt.Errorf("%w: no address given and no home address saved; add ?address= with a Philadelphia address, like 1830 FITZWATER ST", errBadAddress)
+		return "", fmt.Errorf("%w: no address given and no default address saved; add ?address= with a Philadelphia address, like 1830 FITZWATER ST", errBadAddress)
 	case len(address) > maxAddressLen:
 		return "", fmt.Errorf("%w: addresses can be at most %d characters", errBadAddress, maxAddressLen)
 	}
@@ -366,11 +305,14 @@ func (s *Service) lookupFor(address string) *lookup {
 // view is one address's schedule as of one request.
 type view struct {
 	resolved
-	generated   time.Time
-	years       []int
-	holidays    []schedule.Holiday
-	collections []schedule.Collection
-	warnings    []string
+	// saved is the saved address the schedule is for, if it's saved.
+	saved          *Saved
+	savedIsDefault bool
+	generated      time.Time
+	years          []int
+	holidays       []schedule.Holiday
+	collections    []schedule.Collection
+	warnings       []string
 }
 
 func (s *Service) view(r resolved) view {
@@ -428,18 +370,29 @@ func ParseAlarm(s string) (*time.Duration, error) {
 	return &offset, nil
 }
 
-// Handler serves /schedule.json, /schedule.ics, /api/home and /healthz, and
-// hands other GET requests to cfg.Site.
+// Handler serves the schedules (/schedule.json and /schedule.ics, and the
+// same under /a/{id}/ for a saved address), /api/addresses and /healthz,
+// and hands other GET requests to cfg.Site.
 func (s *Service) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /schedule.json", s.serveJSON)
 	mux.HandleFunc("GET /schedule.ics", s.serveICS)
-	mux.HandleFunc("GET /api/home", s.serveHome)
-	mux.HandleFunc("PUT /api/home", s.saveHome)
-	mux.HandleFunc("DELETE /api/home", s.forgetHome)
+	mux.HandleFunc("GET /a/{id}/schedule.json", s.serveJSON)
+	mux.HandleFunc("GET /a/{id}/schedule.ics", s.serveICS)
+	mux.HandleFunc("GET /api/addresses", s.listSaved)
+	mux.HandleFunc("POST /api/addresses", s.addSaved)
+	mux.HandleFunc("PATCH /api/addresses/{id}", s.updateSaved)
+	mux.HandleFunc("DELETE /api/addresses/{id}", s.removeSaved)
 	mux.HandleFunc("GET /healthz", s.serveHealth)
 	if s.cfg.Site != nil {
 		mux.Handle("GET /", s.cfg.Site)
+		// A saved address's page is the same page, which reads the ID
+		// from the URL.
+		mux.HandleFunc("GET /a/{id}", func(w http.ResponseWriter, r *http.Request) {
+			page := r.Clone(r.Context())
+			page.URL.Path, page.URL.RawPath = "/", ""
+			s.cfg.Site.ServeHTTP(w, page)
+		})
 	}
 	return mux
 }
@@ -459,26 +412,29 @@ type holidayJSON struct {
 	Name string `json:"name"`
 }
 
+// scheduleSavedJSON says which saved address a schedule is for.
+type scheduleSavedJSON struct {
+	ID      string `json:"id"`
+	Label   string `json:"label"`
+	Default bool   `json:"default"`
+}
+
 type scheduleJSON struct {
-	Address       string           `json:"address"`
-	PrimaryDay    string           `json:"primary_day"`
-	SecondaryDay  string           `json:"secondary_day,omitempty"`
-	DaysFetchedAt time.Time        `json:"days_fetched_at"`
-	GeneratedAt   time.Time        `json:"generated_at"`
-	HolidayYears  []int            `json:"holiday_years"`
-	Holidays      []holidayJSON    `json:"holidays"`
-	Warnings      []string         `json:"warnings"`
-	Collections   []collectionJSON `json:"collections"`
+	Address string `json:"address"`
+	// Saved is set when the address is saved, however it was asked for.
+	Saved         *scheduleSavedJSON `json:"saved,omitempty"`
+	PrimaryDay    string             `json:"primary_day"`
+	SecondaryDay  string             `json:"secondary_day,omitempty"`
+	DaysFetchedAt time.Time          `json:"days_fetched_at"`
+	GeneratedAt   time.Time          `json:"generated_at"`
+	HolidayYears  []int              `json:"holiday_years"`
+	Holidays      []holidayJSON      `json:"holidays"`
+	Warnings      []string           `json:"warnings"`
+	Collections   []collectionJSON   `json:"collections"`
 }
 
 type errorJSON struct {
 	Error string `json:"error"`
-}
-
-type homeJSON struct {
-	Address string `json:"address"`
-	// Saving reports whether the home address can be changed.
-	Saving bool `json:"saving"`
 }
 
 type healthJSON struct {
@@ -486,13 +442,24 @@ type healthJSON struct {
 	Warnings []string `json:"warnings"`
 }
 
-// lookupRequest resolves the request's address, or the home address when
-// it doesn't name one, or writes the error and returns false.
+// lookupRequest resolves the address a request is for: the saved address
+// in its /a/{id}/ path, its ?address=, or the default saved address. It
+// writes the error and returns false if it can't.
 func (s *Service) lookupRequest(w http.ResponseWriter, r *http.Request) (view, bool) {
 	query := r.URL.Query().Get("address")
-	if strings.TrimSpace(query) == "" && s.Home() != "" {
-		query = s.Home()
+	if id := r.PathValue("id"); id != "" {
+		saved, _, ok := s.savedByID(id)
+		if !ok {
+			s.writeSavedError(w, errNoSuchSaved)
+			return view{}, false
+		}
+		query = saved.Address
+	} else if strings.TrimSpace(query) == "" {
+		if saved, _, ok := s.findSaved(func(a Saved) bool { return a.ID == s.defaultSavedID() }); ok {
+			query = saved.Address
+		}
 	}
+
 	address, err := cleanAddress(query)
 	if err != nil {
 		s.writeJSON(w, http.StatusBadRequest, errorJSON{Error: err.Error()})
@@ -502,7 +469,17 @@ func (s *Service) lookupRequest(w http.ResponseWriter, r *http.Request) (view, b
 	if !ok {
 		return view{}, false
 	}
-	return s.view(res), true
+	v := s.view(res)
+	if saved, isDefault, ok := s.findSaved(func(a Saved) bool { return a.Address == res.property.Address }); ok {
+		v.saved, v.savedIsDefault = &saved, isDefault
+	}
+	return v, true
+}
+
+// defaultSavedID returns the default saved address's ID, or the nil UUID.
+func (s *Service) defaultSavedID() uuid.UUID {
+	_, def := s.savedList()
+	return def
 }
 
 // resolveRequest resolves address, or writes the error and returns false.
@@ -521,63 +498,6 @@ func (s *Service) resolveRequest(ctx context.Context, w http.ResponseWriter, add
 		return resolved{}, false
 	}
 	return res, true
-}
-
-func (s *Service) serveHome(w http.ResponseWriter, _ *http.Request) {
-	s.writeJSON(w, http.StatusOK, homeJSON{Address: s.Home(), Saving: s.cfg.AddressFile != ""})
-}
-
-// saveHome saves the address in the body as the home address, after
-// checking the city knows it. Requiring PUT with a JSON body means a
-// browser asks this server's permission first (a CORS preflight, which it
-// never grants), so another site can't change the address from a visitor's
-// browser.
-func (s *Service) saveHome(w http.ResponseWriter, r *http.Request) {
-	if s.cfg.AddressFile == "" {
-		s.writeJSON(w, http.StatusNotImplemented, errorJSON{Error: errNoSaving.Error()})
-		return
-	}
-	if ct := r.Header.Get("Content-Type"); !strings.HasPrefix(ct, "application/json") {
-		s.writeJSON(w, http.StatusUnsupportedMediaType, errorJSON{Error: "send the address as JSON, like {\"address\": \"1830 FITZWATER ST\"}"})
-		return
-	}
-	var body homeJSON
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<10)).Decode(&body); err != nil {
-		s.writeJSON(w, http.StatusBadRequest, errorJSON{Error: "send the address as JSON, like {\"address\": \"1830 FITZWATER ST\"}"})
-		return
-	}
-	address, err := cleanAddress(body.Address)
-	if err != nil {
-		s.writeJSON(w, http.StatusBadRequest, errorJSON{Error: err.Error()})
-		return
-	}
-	res, ok := s.resolveRequest(r.Context(), w, address)
-	if !ok {
-		return
-	}
-
-	// Save the city's form of the address, so the feed's event IDs match
-	// whichever way it was typed.
-	if err := s.setHome(res.property.Address); err != nil {
-		s.cfg.Logger.Warn("save home address", "err", err)
-		s.writeJSON(w, http.StatusInternalServerError, errorJSON{
-			Error: fmt.Sprintf("%v; the directory holding %s has to be writable by the container's user", err, s.cfg.AddressFile),
-		})
-		return
-	}
-	s.writeJSON(w, http.StatusOK, homeJSON{Address: res.property.Address, Saving: true})
-}
-
-func (s *Service) forgetHome(w http.ResponseWriter, _ *http.Request) {
-	if err := s.setHome(""); err != nil {
-		status := http.StatusInternalServerError
-		if errors.Is(err, errNoSaving) {
-			status = http.StatusNotImplemented
-		}
-		s.writeJSON(w, status, errorJSON{Error: err.Error()})
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *Service) serveJSON(w http.ResponseWriter, r *http.Request) {
@@ -599,6 +519,9 @@ func (s *Service) serveJSON(w http.ResponseWriter, r *http.Request) {
 	}
 	if days.HasSecondary {
 		out.SecondaryDay = days.Secondary.String()
+	}
+	if v.saved != nil {
+		out.Saved = &scheduleSavedJSON{ID: v.saved.ID.String(), Label: v.saved.Label, Default: v.savedIsDefault}
 	}
 	for i, h := range v.holidays {
 		out.Holidays[i] = holidayJSON{Date: h.Date.Format(schedule.DateLayout), Name: h.Name}
@@ -631,9 +554,13 @@ func (s *Service) serveICS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	name := "Trash and recycling"
+	if v.saved != nil && v.saved.Label != "" {
+		name += " (" + v.saved.Label + ")"
+	}
 	cal := ical.Calendar{
 		ProdID:  "-//zackwag//phila-trashday//EN",
-		Name:    "Trash and recycling",
+		Name:    name,
 		Refresh: s.cfg.Refresh,
 		Events:  make([]ical.Event, len(v.collections)),
 	}

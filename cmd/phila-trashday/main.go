@@ -1,11 +1,12 @@
 // Command phila-trashday serves Philadelphia trash and recycling schedules
 // on the LAN: a web page at /, JSON at /schedule.json and an iCalendar feed
-// at /schedule.ics, for any address or for the saved home address.
+// at /schedule.ics, for any address, for each saved address under
+// /a/{id}/, and for the default saved address when no address is given.
 //
 // It's configured with environment variables:
 //
 //	HOLIDAYS_FILE     the city's holidays, one YYYY-MM-DD per line (default /config/holidays.txt)
-//	ADDRESS_FILE      where the home address is saved (default /data/address.txt)
+//	ADDRESSES_FILE    where saved addresses are kept (default /data/addresses.json)
 //	ALARM_TIME        when feeds alert the evening before a pickup, as HH:MM, or "off" (default 20:00)
 //	REFRESH_INTERVAL  how long an address lookup is reused, and how often holidays are re-read (default 6h)
 //	LISTEN_ADDR       where to serve (default :8080)
@@ -35,11 +36,11 @@ import (
 var version = "dev"
 
 type config struct {
-	holidaysFile string
-	addressFile  string
-	alarm        *time.Duration
-	refresh      time.Duration
-	listenAddr   string
+	holidaysFile  string
+	addressesFile string
+	alarm         *time.Duration
+	refresh       time.Duration
+	listenAddr    string
 }
 
 func main() {
@@ -70,15 +71,15 @@ func run(logger *slog.Logger) error {
 			BaseURL:   ais.DefaultBaseURL,
 			UserAgent: "phila-trashday/" + version + " (+https://github.com/zackwag/phila-trashday)",
 		},
-		HolidaysFile: cfg.holidaysFile,
-		AddressFile:  cfg.addressFile,
-		Alarm:        cfg.alarm,
-		Refresh:      cfg.refresh,
-		Location:     loc,
-		Logger:       logger,
-		Site:         web.Handler(),
+		HolidaysFile:  cfg.holidaysFile,
+		AddressesFile: cfg.addressesFile,
+		Alarm:         cfg.alarm,
+		Refresh:       cfg.refresh,
+		Location:      loc,
+		Logger:        logger,
+		Site:          web.Handler(),
 	})
-	if err := svc.LoadHome(); err != nil {
+	if err := svc.LoadSaved(); err != nil {
 		return err
 	}
 
@@ -93,7 +94,7 @@ func run(logger *slog.Logger) error {
 	}
 	errc := make(chan error, 1)
 	go func() {
-		logger.Info("serving", "addr", cfg.listenAddr, "home", svc.Home(), "version", version)
+		logger.Info("serving", "addr", cfg.listenAddr, "version", version)
 		errc <- srv.ListenAndServe()
 	}()
 
@@ -112,9 +113,9 @@ func run(logger *slog.Logger) error {
 
 func loadConfig(getenv func(string) string) (config, error) {
 	cfg := config{
-		holidaysFile: or(getenv("HOLIDAYS_FILE"), "/config/holidays.txt"),
-		addressFile:  or(getenv("ADDRESS_FILE"), "/data/address.txt"),
-		listenAddr:   or(getenv("LISTEN_ADDR"), ":8080"),
+		holidaysFile:  or(getenv("HOLIDAYS_FILE"), "/config/holidays.txt"),
+		addressesFile: or(getenv("ADDRESSES_FILE"), "/data/addresses.json"),
+		listenAddr:    or(getenv("LISTEN_ADDR"), ":8080"),
 	}
 
 	refresh, err := time.ParseDuration(or(getenv("REFRESH_INTERVAL"), "6h"))
