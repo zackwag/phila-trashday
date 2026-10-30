@@ -127,7 +127,8 @@ func newFixture(t *testing.T, opts ...func(*Config)) *fixture {
 		opt(&cfg)
 	}
 	f.svc = New(cfg)
-	f.writeHolidays("2026-11-11 Veterans Day\n2026-11-26 Thanksgiving Day\n")
+	// The city's holidays are computed. The file adds one more.
+	f.writeHolidays("2026-12-24 Christmas Eve\n")
 	if err := f.svc.ReloadHolidays(); err != nil {
 		t.Fatal(err)
 	}
@@ -209,12 +210,21 @@ func TestScheduleJSON(t *testing.T) {
 	if got.Address != "1830 FITZWATER ST" || got.PrimaryDay != "Wednesday" || got.SecondaryDay != "Saturday" {
 		t.Errorf("address and days = %q, %q, %q", got.Address, got.PrimaryDay, got.SecondaryDay)
 	}
-	if !slices.Equal(got.HolidayYears, []int{2026}) {
-		t.Errorf("holiday_years = %v, want [2026]", got.HolidayYears)
+	// The city's holidays from October 23, 2026, with the extra one from
+	// the file among them, and weekend ones left out.
+	wantFirst := []holidayJSON{
+		{"2026-11-11", "Veterans Day"},
+		{"2026-11-26", "Thanksgiving"},
+		{"2026-11-27", "Thanksgiving Friday"},
+		{"2026-12-24", "Christmas Eve"},
+		{"2026-12-25", "Christmas Day"},
+		{"2027-01-01", "New Year's Day"},
 	}
-	wantHolidays := []holidayJSON{{"2026-11-11", "Veterans Day"}, {"2026-11-26", "Thanksgiving Day"}}
-	if !slices.Equal(got.Holidays, wantHolidays) {
-		t.Errorf("holidays = %v, want %v", got.Holidays, wantHolidays)
+	if len(got.Holidays) < len(wantFirst) || !slices.Equal(got.Holidays[:len(wantFirst)], wantFirst) {
+		t.Errorf("holidays = %v, want them to start %v", got.Holidays, wantFirst)
+	}
+	if slices.ContainsFunc(got.Holidays, func(h holidayJSON) bool { return h.Date == "2027-06-19" }) {
+		t.Error("holidays include Juneteenth 2027, a Saturday")
 	}
 	if len(got.Warnings) != 0 {
 		t.Errorf("warnings = %v, want none", got.Warnings)
@@ -416,23 +426,21 @@ func TestHealth(t *testing.T) {
 		t.Errorf("health = %d %s, want ok", rec.Code, rec.Body)
 	}
 
-	// From two months before 2027, a missing 2027 is a warning.
-	f.now = time.Date(2026, 11, 15, 12, 0, 0, 0, philly)
-	rec := f.get("/healthz")
-	h := decode[healthJSON](t, rec)
-	if rec.Code != http.StatusOK || h.Status != "degraded" || !hasWarning(h.Warnings, "no holidays listed for 2027") {
-		t.Errorf("health = %d %+v, want degraded about 2027", rec.Code, h)
-	}
-	if got := f.schedule("1830 FITZWATER ST"); !hasWarning(got.Warnings, "2027") {
-		t.Errorf("schedule warnings = %v, want the 2027 warning too", got.Warnings)
+	// Holidays are computed, so a new year needs nothing.
+	f.now = time.Date(2027, 12, 20, 12, 0, 0, 0, philly)
+	if h := decode[healthJSON](t, f.get("/healthz")); h.Status != "ok" {
+		t.Errorf("health in December 2027 = %+v, want ok", h)
 	}
 
-	f.writeHolidays("2026-11-11\n2027-01-01 New Year's Day\n")
-	if err := f.svc.ReloadHolidays(); err != nil {
-		t.Fatal(err)
+	f.writeHolidays("bad\n")
+	_ = f.svc.ReloadHolidays()
+	rec := f.get("/healthz")
+	h := decode[healthJSON](t, rec)
+	if rec.Code != http.StatusOK || h.Status != "degraded" || !hasWarning(h.Warnings, "extra holidays file") {
+		t.Errorf("health with a bad file = %d %+v, want degraded about the file", rec.Code, h)
 	}
-	if h := decode[healthJSON](t, f.get("/healthz")); h.Status != "ok" {
-		t.Errorf("health after adding 2027 = %+v, want ok", h)
+	if got := f.schedule("1830 FITZWATER ST"); !hasWarning(got.Warnings, "extra holidays file") {
+		t.Errorf("schedule warnings = %v, want the file warning too", got.Warnings)
 	}
 }
 
@@ -446,11 +454,14 @@ func TestHolidaysFileProblems(t *testing.T) {
 			t.Fatal(err)
 		}
 		got := f.schedule("1830 FITZWATER ST")
-		if len(got.Warnings) != 1 || !hasWarning(got.Warnings, "no holidays file") {
-			t.Errorf("warnings = %v, want only the missing file", got.Warnings)
+		if len(got.Warnings) != 0 {
+			t.Errorf("warnings = %v, want none: the file is optional", got.Warnings)
 		}
-		if findCollection(t, got.Collections, "2026-11-11-primary").Moved {
-			t.Error("Veterans Day pickup moved without a holidays file")
+		if !findCollection(t, got.Collections, "2026-11-11-primary").Moved {
+			t.Error("Veterans Day pickup not moved without a file, want the city's holidays still applied")
+		}
+		if slices.ContainsFunc(got.Holidays, func(h holidayJSON) bool { return h.Name == "Christmas Eve" }) {
+			t.Error("the removed file's extra holiday is still listed")
 		}
 	})
 
@@ -464,8 +475,8 @@ func TestHolidaysFileProblems(t *testing.T) {
 		if !hasWarning(got.Warnings, "last good copy") {
 			t.Errorf("warnings = %v, want one about the bad file", got.Warnings)
 		}
-		if !findCollection(t, got.Collections, "2026-11-11-primary").Moved {
-			t.Error("Veterans Day pickup not moved, want the last good holidays kept")
+		if !slices.ContainsFunc(got.Holidays, func(h holidayJSON) bool { return h.Name == "Christmas Eve" }) {
+			t.Error("Christmas Eve gone, want the last good file kept")
 		}
 	})
 
@@ -493,7 +504,7 @@ func TestHolidaysFileProblems(t *testing.T) {
 
 func TestRun(t *testing.T) {
 	f := newFixture(t)
-	f.writeHolidays("2026-11-11\n2027-01-01\n")
+	f.writeHolidays("2027-03-01 Snow day\n")
 	f.svc.cfg.Refresh = time.Millisecond
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -506,9 +517,9 @@ func TestRun(t *testing.T) {
 	deadline := time.Now().Add(5 * time.Second)
 	for {
 		f.svc.mu.RLock()
-		years := f.svc.holidays.Years()
+		_, reloaded := f.svc.extra[time.Date(2027, 3, 1, 0, 0, 0, 0, time.UTC)]
 		f.svc.mu.RUnlock()
-		if slices.Equal(years, []int{2026, 2027}) {
+		if reloaded {
 			break
 		}
 		if time.Now().After(deadline) {

@@ -35,10 +35,6 @@ func TestParseHolidays(t *testing.T) {
 			t.Errorf("holiday %s = %q (present %v), want %q", s, g, ok, name)
 		}
 	}
-
-	if years := got.Years(); !slices.Equal(years, []int{2026, 2027}) {
-		t.Errorf("Years() = %v, want [2026 2027]", years)
-	}
 }
 
 func TestParseHolidaysErrors(t *testing.T) {
@@ -59,7 +55,7 @@ func TestParseHolidaysEmpty(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(got) != 0 || len(got.Years()) != 0 {
+	if len(got) != 0 {
 		t.Errorf("got %v, want no holidays", got)
 	}
 }

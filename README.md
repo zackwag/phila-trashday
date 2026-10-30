@@ -32,7 +32,7 @@ A saved address's page is at `/a/{id}`, so it can be bookmarked or shared. The a
 | `/a/{id}`, `/a/{id}/schedule.ics`, `/a/{id}/schedule.json` | A saved address's page and feeds |
 | `/api/addresses` | `GET` the saved addresses, `POST {"address": "…", "label": "Home"}` to save one |
 | `/api/addresses/{id}` | `PATCH {"label": …, "address": …, "default": true}` to change one, `DELETE` to remove it |
-| `/healthz` | `200` with `ok`, or `degraded` and the holiday warnings |
+| `/healthz` | `200` with `ok`, or `degraded` when the extra holidays file can't be read |
 
 Prefer a saved address's `/a/{id}/schedule.ics` for subscriptions. It keeps working if the address is renamed or moved, and it doesn't reveal the address. Leave out `address` and the default saved address is used. Addresses can be typed any way AIS understands, like `1830 fitzwater street`, and are saved once in the city's form however they're typed. The first saved address becomes the default, and removing the default makes the oldest remaining one the default. Removing an address breaks its links.
 
@@ -52,23 +52,40 @@ Each pickup's ID is the date it's usually on plus its slot, like `2026-11-11-pri
 
 ## Holidays
 
-The city keeps its holiday list behind a CDN that blocks anything that isn't a browser, so this service doesn't fetch it. Holidays come from a file instead, one date per line (see [`holidays.example.txt`](holidays.example.txt)):
+The city's holidays are computed, for every year, so there's nothing to keep up to date. The city publishes its list behind a CDN that blocks anything that isn't a browser, but every holiday on it follows a fixed rule: the federal holidays, plus Good Friday and the day after Thanksgiving.
+
+| Holiday | Rule |
+| --- | --- |
+| New Year's Day | January 1 |
+| Martin Luther King, Jr. Day | Third Monday in January |
+| Presidents' Day | Third Monday in February |
+| Good Friday | Two days before Easter |
+| Memorial Day | Last Monday in May |
+| Juneteenth | June 19 |
+| Independence Day | July 4 |
+| Labor Day | First Monday in September |
+| Columbus Day/Indigenous Peoples' Day | Second Monday in October |
+| Veterans Day | November 11 |
+| Thanksgiving | Fourth Thursday in November |
+| Thanksgiving Friday | The day after Thanksgiving |
+| Christmas Day | December 25 |
+
+A holiday on a Sunday is observed on Monday, as phila.gov's holidays page says. One on a Saturday stays there and doesn't move pickups, the way the city listed Independence Day in 2026. The computed 2026 list matches the city's exactly, names included.
+
+For a one-off closure the city announces, list it in an optional file, one date per line with an optional name (see [`holidays.example.txt`](holidays.example.txt)). It's added to the computed holidays and re-read every 6 hours, so edits apply without a restart:
 
 ```text
-2026-11-11 Veterans Day
-2026-11-26 Thanksgiving Day
+2026-12-24 Christmas Eve
 ```
-
-The file is re-read every 6 hours, so edits apply without a restart. A year with no holidays listed is still served, just without holiday moves, and `/healthz` reports `degraded` from two months before that year starts until you add it.
 
 ## Configuration
 
 | Variable | Default | What |
 | --- | --- | --- |
-| `HOLIDAYS_FILE` | `/config/holidays.txt` | The holidays file |
+| `HOLIDAYS_FILE` | `/config/holidays.txt` | Optional extra holidays, on top of the city's computed ones |
 | `ADDRESSES_FILE` | `/data/addresses.json` | Where saved addresses are kept |
 | `ALARM_TIME` | `20:00` | The feed's default reminder the evening before a pickup, as `HH:MM`, or `off` |
-| `REFRESH_INTERVAL` | `6h` | How long an address lookup is reused, and how often holidays are re-read |
+| `REFRESH_INTERVAL` | `6h` | How long an address lookup is reused, and how often the extra holidays file is re-read |
 | `LISTEN_ADDR` | `:8080` | Where to serve |
 
 ## Running it
@@ -82,12 +99,13 @@ services:
     ports:
       - "8080:8080"
     volumes:
-      - ./holidays.txt:/config/holidays.txt:ro
       - phila-trashday-data:/data
 
 volumes:
   phila-trashday-data:
 ```
+
+To add extra holidays, mount a file at `/config/holidays.txt` too. Use an absolute host path if a tool like Komodo deploys the stack, since it may resolve relative paths somewhere the Docker daemon can't see.
 
 The image is `FROM scratch` and runs as `nobody` (UID 65534). A named volume at `/data` starts out writable. If you bind-mount a host directory there instead, make it writable by UID 65534 (`chown 65534:65534`), or saving addresses fails with a message saying so.
 

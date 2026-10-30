@@ -2,7 +2,7 @@
 
 ## Project overview
 
-phila-trashday tells Philadelphia residents when to put out trash and recycling. It serves a web page that searches for any address, `/schedule.ics` and `/schedule.json` feeds per address, and saved addresses, each under a random UUID with its own `/a/{id}` page and feeds. One saved address is the default, used when a request doesn't name one. Addresses are looked up in the city's AIS API, holidays come from a local file, and it runs as a `FROM scratch` Docker container. It's a Go module with no dependencies outside the standard library, and the page is plain HTML, CSS and JavaScript embedded in the binary, with no build step.
+phila-trashday tells Philadelphia residents when to put out trash and recycling. It serves a web page that searches for any address, `/schedule.ics` and `/schedule.json` feeds per address, and saved addresses, each under a random UUID with its own `/a/{id}` page and feeds. One saved address is the default, used when a request doesn't name one. Addresses are looked up in the city's AIS API, the city's holidays are computed from their rules (with an optional file of extra ones), and it runs as a `FROM scratch` Docker container. It's a Go module with no dependencies outside the standard library, and the page is plain HTML, CSS and JavaScript embedded in the binary, with no build step.
 
 ## Setup
 
@@ -33,7 +33,7 @@ go test -race -cover ./...
 ## Repository structure
 
 - `cmd/phila-trashday/`: environment config, the HTTP server and the `healthcheck` subcommand.
-- `internal/schedule/`: the pickup and holiday rules, and the holidays file parser. Pure functions, no I/O.
+- `internal/schedule/`: the pickup and holiday rules, the city's holidays computed per year (`city.go`), and the extra holidays file parser. Pure functions, no I/O.
 - `internal/ais/`: the AIS address lookup.
 - `internal/ical/`: the iCalendar writer (escaping, line folding, alarms).
 - `internal/server/`: address lookups and their cache, holiday reloads, warnings, and the schedule handlers in `server.go`; saved addresses, their file and `/api/addresses` in `saved.go`.
@@ -44,7 +44,7 @@ go test -race -cover ./...
 - Dates are `time.Time` at midnight UTC, made with `schedule.Day`, so they compare with `Equal` and work as map keys. Philadelphia's time zone only decides what today is.
 - A saved address's ID is a random v4 UUID from the standard library's `uuid` package, never derived from the address: its URLs have to survive the address changing, and shouldn't reveal it.
 - A pickup's ID is its usual date plus its slot. Never derive it from the moved date: subscribers like ReminderSync match events by UID, and a holiday has to look like a move, not a delete and a create.
-- Don't fetch anything from phila.gov that sits behind its bot-blocking CDN (`www.phila.gov`, `api.phila.gov/phila/trashday`). AIS and Carto aren't blocked. Holidays come from the file.
+- Don't fetch anything from phila.gov that sits behind its bot-blocking CDN (`www.phila.gov`, `api.phila.gov/phila/trashday`). AIS and Carto aren't blocked. Holidays are computed in `schedule.CityHolidays`, which is tested against the list the city's trashday endpoint returned for 2026. If the city adds or drops a holiday, change the rules and that test together, checking against the endpoint in a browser.
 - The page builds the DOM with `textContent`, never `innerHTML`, since addresses come from the city's records and from visitors.
 - The page's design: Overpass (modeled on road-sign lettering) as the only typeface, a curbside palette (sidewalk, asphalt, bin blue, trash-can gray, streetlamp amber, night navy), and one bold element, the hero's answer, which turns to night colors when tonight is set-out night. Keep everything else quiet.
 - Doc comments on every exported identifier, comments that explain why, errors wrapped with `%w`, table-driven tests and fakes over mocks.

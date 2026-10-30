@@ -5,10 +5,10 @@
 //
 // It's configured with environment variables:
 //
-//	HOLIDAYS_FILE     the city's holidays, one YYYY-MM-DD per line (default /config/holidays.txt)
+//	HOLIDAYS_FILE     optional extra holidays, one YYYY-MM-DD per line, on top of the city's computed ones (default /config/holidays.txt)
 //	ADDRESSES_FILE    where saved addresses are kept (default /data/addresses.json)
 //	ALARM_TIME        when feeds alert the evening before a pickup, as HH:MM, or "off" (default 20:00)
-//	REFRESH_INTERVAL  how long an address lookup is reused, and how often holidays are re-read (default 6h)
+//	REFRESH_INTERVAL  how long an address lookup is reused, and how often the extra holidays file is re-read (default 6h)
 //	LISTEN_ADDR       where to serve (default :8080)
 //
 // "phila-trashday healthcheck" checks a running instance's /healthz, for
