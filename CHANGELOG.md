@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.0](https://github.com/zackwag/phila-trashday/compare/v0.1.0...v0.2.0) (2026-10-30)
+
+
+### Features
+
+* save multiple addresses, each with its own links ([#12](https://github.com/zackwag/phila-trashday/issues/12)) ([cd390ea](https://github.com/zackwag/phila-trashday/commit/cd390ea3069274f82d894a001aaeef05f0944759))
+
 ## 0.1.0 (2026-10-30)
 
 
