@@ -6,10 +6,41 @@ on:
   pull_request:
     branches: [main]
 
+permissions:
+  contents: read
+
 jobs:
   test:
     name: Test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - run: echo "Replace this with real test steps."
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - name: Vet
+        run: go vet ./...
+      - name: Test
+        run: go test -race -cover ./...
+
+  docker:
+    name: Docker
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Build image
+        run: docker build --build-arg VERSION=ci -t phila-trashday:ci .
+      - name: Check the container serves the page and its healthcheck passes
+        run: |
+          docker run -d --name trashday -p 8080:8080 phila-trashday:ci
+          for _ in $(seq 1 30); do
+            if curl -sf http://localhost:8080/healthz; then
+              break
+            fi
+            sleep 1
+          done
+          curl -sf http://localhost:8080/ | grep -q "trash night"
+          docker exec trashday /phila-trashday healthcheck
+      - name: Logs
+        if: always()
+        run: docker logs trashday || true

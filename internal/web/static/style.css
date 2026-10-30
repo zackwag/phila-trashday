@@ -1,0 +1,545 @@
+/* Overpass is modeled on Highway Gothic, the lettering on US road signs:
+   the page is meant to read like signage at the curb. */
+@font-face {
+  font-family: "Overpass";
+  src: url("/fonts/overpass-latin-wght.woff2") format("woff2");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+:root {
+  --sidewalk: #eef0f1;
+  --surface: #ffffff;
+  --curb: #d5dade;
+  --asphalt: #1e2328;
+  --asphalt-soft: #545e67;
+  --bin-blue: #1f5fbf;
+  --bin-gray: #4a5560;
+  --lamp: #f5b700;
+  --night: #0e1a2e;
+  --night-text: #dfe6f0;
+  --danger: #b42318;
+
+  --measure: 44rem;
+  --gutter: clamp(1.25rem, 5vw, 2.5rem);
+  --radius: 0.625rem;
+
+  color-scheme: light dark;
+  font: 400 1.125rem/1.55 "Overpass", system-ui, sans-serif;
+  color: var(--asphalt);
+  background: var(--sidewalk);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --sidewalk: #161b20;
+    --surface: #1f262d;
+    --curb: #333c45;
+    --asphalt: #e6eaee;
+    --asphalt-soft: #9ba6b0;
+    --bin-blue: #6c9ce6;
+    --bin-gray: #8b97a2;
+    --night: #0a1424;
+    --danger: #f97066;
+  }
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--sidewalk);
+}
+
+main {
+  flex: 1;
+}
+
+h1,
+h2,
+h3,
+p {
+  margin: 0;
+}
+
+:focus-visible {
+  outline: 3px solid var(--bin-blue);
+  outline-offset: 2px;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+[hidden] {
+  display: none !important;
+}
+
+/* Masthead */
+
+.masthead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.25rem 1rem;
+  max-width: calc(var(--measure) + 2 * var(--gutter));
+  margin: 0 auto;
+  width: 100%;
+  padding: 1.25rem var(--gutter) 0;
+}
+
+.wordmark {
+  font-weight: 800;
+  font-size: 1.125rem;
+  letter-spacing: -0.01em;
+  color: inherit;
+  text-decoration: none;
+}
+
+.place {
+  display: flex;
+  align-items: baseline;
+  gap: 0.75rem;
+  color: var(--asphalt-soft);
+}
+
+/* Hero: the answer, set like a sign. At night it turns night-blue under a
+   streetlamp. */
+
+.hero {
+  position: relative;
+  overflow: hidden;
+  padding: clamp(2.5rem, 9vw, 5.5rem) 0 clamp(2.5rem, 8vw, 4.5rem);
+}
+
+.hero-inner {
+  position: relative;
+  max-width: calc(var(--measure) + 2 * var(--gutter));
+  margin: 0 auto;
+  padding: 0 var(--gutter);
+}
+
+.answer {
+  font-size: clamp(3.75rem, 19vw, 8.5rem);
+  font-weight: 800;
+  line-height: 0.92;
+  letter-spacing: -0.035em;
+  text-wrap: balance;
+}
+
+#search-view .answer {
+  font-size: clamp(2.75rem, 11vw, 6rem);
+}
+
+.lede,
+.instruction {
+  margin-top: 1.25rem;
+  max-width: 34rem;
+  font-size: clamp(1.25rem, 3.5vw, 1.625rem);
+  line-height: 1.35;
+  font-weight: 600;
+}
+
+.when {
+  margin-top: 0.5rem;
+  max-width: 34rem;
+  font-size: 1.125rem;
+  color: var(--asphalt-soft);
+}
+
+.hero.is-night {
+  background: var(--night);
+  color: var(--night-text);
+}
+
+.hero.is-night .answer {
+  color: var(--lamp);
+}
+
+.hero.is-night .when {
+  color: color-mix(in srgb, var(--night-text) 72%, transparent);
+}
+
+/* The streetlamp: a pool of sodium light falling on the headline. */
+.hero.is-night::before {
+  content: "";
+  position: absolute;
+  inset: -40% -10% auto auto;
+  width: min(48rem, 120vw);
+  aspect-ratio: 1;
+  background: radial-gradient(closest-side, color-mix(in srgb, var(--lamp) 28%, transparent), transparent);
+  animation: lamp-on 1.6s ease-out both;
+  pointer-events: none;
+}
+
+@keyframes lamp-on {
+  0% { opacity: 0; }
+  35% { opacity: 0.55; }
+  45% { opacity: 0.2; }
+  100% { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hero.is-night::before {
+    animation: none;
+  }
+}
+
+/* Search */
+
+.search {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-top: 2rem;
+  max-width: 36rem;
+}
+
+.combo {
+  position: relative;
+  flex: 1 1 18rem;
+}
+
+.combo input {
+  width: 100%;
+  font: inherit;
+  font-size: 1.25rem;
+  font-weight: 600;
+  padding: 0.8rem 1rem 0.6rem;
+  color: var(--asphalt);
+  background: var(--surface);
+  border: 2px solid var(--curb);
+  border-radius: var(--radius);
+}
+
+.combo input:focus-visible {
+  outline: none;
+  border-color: var(--bin-blue);
+}
+
+.suggestions {
+  position: absolute;
+  z-index: 2;
+  inset: calc(100% + 0.375rem) 0 auto;
+  margin: 0;
+  padding: 0.375rem;
+  list-style: none;
+  background: var(--surface);
+  border: 1px solid var(--curb);
+  border-radius: var(--radius);
+  box-shadow: 0 12px 24px -12px rgb(14 26 46 / 0.35);
+}
+
+.suggestions li {
+  padding: 0.55rem 0.75rem 0.4rem;
+  border-radius: calc(var(--radius) - 0.25rem);
+  cursor: pointer;
+}
+
+.suggestions li[aria-selected="true"] {
+  background: color-mix(in srgb, var(--bin-blue) 14%, transparent);
+}
+
+/* Buttons and links */
+
+.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font: inherit;
+  font-weight: 700;
+  padding: 0.8rem 1.25rem 0.6rem;
+  color: var(--sidewalk);
+  background: var(--asphalt);
+  border: 2px solid var(--asphalt);
+  border-radius: var(--radius);
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.button:hover {
+  background: var(--bin-blue);
+  border-color: var(--bin-blue);
+}
+
+.button-quiet {
+  color: var(--asphalt);
+  background: transparent;
+  border-color: var(--curb);
+}
+
+.button-quiet:hover {
+  color: var(--sidewalk);
+}
+
+.text-button,
+.text-link {
+  font: inherit;
+  padding: 0;
+  color: var(--bin-blue);
+  background: none;
+  border: 0;
+  text-decoration: underline;
+  text-underline-offset: 0.2em;
+  cursor: pointer;
+}
+
+.error {
+  margin-top: 1rem;
+  max-width: 36rem;
+  color: var(--danger);
+  font-weight: 600;
+}
+
+/* Details below the hero */
+
+.details {
+  max-width: calc(var(--measure) + 2 * var(--gutter));
+  margin: 0 auto;
+  padding: 0 var(--gutter) 3rem;
+}
+
+.block {
+  padding-top: 2.75rem;
+}
+
+.block h2 {
+  font-size: 1.5rem;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  margin-bottom: 0.75rem;
+}
+
+.note {
+  max-width: 36rem;
+  color: var(--asphalt-soft);
+  margin-bottom: 1rem;
+}
+
+/* Upcoming pickups: a date column like a tear-off calendar, then the bins. */
+
+.month {
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--asphalt-soft);
+  padding: 1.25rem 0 0.25rem;
+}
+
+.pickups {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.pickup {
+  display: grid;
+  grid-template-columns: 4.25rem 1fr;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.75rem 0;
+  border-top: 1px solid var(--curb);
+}
+
+.pickup-date {
+  display: grid;
+  justify-items: start;
+  line-height: 1;
+}
+
+.pickup-day {
+  font-size: 2rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+
+.pickup-weekday {
+  margin-top: 0.3rem;
+  font-size: 0.9375rem;
+  color: var(--asphalt-soft);
+}
+
+.bins {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 1.25rem;
+  font-weight: 700;
+}
+
+.bin {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+/* A swatch shaped like a bin lid, in the bin's color. */
+.bin::before {
+  content: "";
+  width: 0.9rem;
+  height: 0.7rem;
+  border-radius: 0.2rem 0.2rem 0.1rem 0.1rem;
+  background: var(--bin-color);
+}
+
+.bin-trash {
+  --bin-color: var(--bin-gray);
+}
+
+.bin-recycling {
+  --bin-color: var(--bin-blue);
+}
+
+.pickup-note {
+  margin-top: 0.15rem;
+  font-size: 0.9375rem;
+  color: var(--asphalt-soft);
+}
+
+.pickup.is-next .pickup-day {
+  color: var(--bin-blue);
+}
+
+.pickup-tag {
+  display: inline-block;
+  margin-left: 0.5rem;
+  padding: 0.15rem 0.5rem 0;
+  font-size: 0.8125rem;
+  font-weight: 800;
+  color: var(--night);
+  background: var(--lamp);
+  border-radius: 0.3rem;
+}
+
+.pickup.is-skipped {
+  color: var(--asphalt-soft);
+}
+
+.pickup.is-skipped .pickup-day {
+  text-decoration: line-through;
+  text-decoration-thickness: 0.08em;
+}
+
+#more {
+  margin-top: 1rem;
+}
+
+/* Holidays */
+
+.holidays {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.holidays li {
+  display: grid;
+  grid-template-columns: 9rem 1fr;
+  gap: 1rem;
+  padding: 0.5rem 0;
+  border-top: 1px solid var(--curb);
+}
+
+.holidays time {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Calendar feed */
+
+.field {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.field select {
+  font: inherit;
+  font-weight: 600;
+  padding: 0.45rem 0.75rem 0.3rem;
+  color: var(--asphalt);
+  background: var(--surface);
+  border: 2px solid var(--curb);
+  border-radius: var(--radius);
+}
+
+.feed {
+  display: flex;
+  gap: 0.5rem;
+  max-width: 40rem;
+}
+
+.feed input {
+  flex: 1;
+  min-width: 0;
+  font: inherit;
+  font-size: 1rem;
+  padding: 0.65rem 0.85rem 0.5rem;
+  color: var(--asphalt-soft);
+  background: var(--surface);
+  border: 2px solid var(--curb);
+  border-radius: var(--radius);
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 1rem 1.5rem;
+  margin: 1rem 0;
+}
+
+.home {
+  margin-top: 1.5rem;
+  padding-top: 1.25rem;
+  border-top: 1px solid var(--curb);
+}
+
+.home-status {
+  max-width: 36rem;
+  margin-bottom: 0.75rem;
+}
+
+.warnings {
+  margin-top: 2.5rem;
+  max-width: 36rem;
+  font-size: 0.9375rem;
+  color: var(--asphalt-soft);
+}
+
+/* Footer */
+
+.footer {
+  max-width: calc(var(--measure) + 2 * var(--gutter));
+  margin: 0 auto;
+  width: 100%;
+  padding: 1.5rem var(--gutter) 2rem;
+  font-size: 0.875rem;
+  color: var(--asphalt-soft);
+}
+
+@media (max-width: 30rem) {
+  .feed {
+    flex-direction: column;
+  }
+
+  .holidays li {
+    grid-template-columns: 1fr;
+    gap: 0;
+  }
+}

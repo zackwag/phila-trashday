@@ -1,0 +1,6 @@
+.git
+.github
+scripts
+*.md
+*.txt
+compose*.yaml

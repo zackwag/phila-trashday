@@ -8,3 +8,7 @@ build/
 __pycache__/
 *.pyc
 .venv/
+
+# Local builds
+/phila-trashday
+holidays.txt
