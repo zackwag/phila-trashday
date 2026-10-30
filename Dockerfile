@@ -1,4 +1,7 @@
-FROM golang:1.27-alpine AS build
+# The build stage runs on the builder's own platform and cross-compiles for
+# each target, so a multi-arch build never emulates the Go compiler. The
+# final stage only copies files, so it needs no emulation either.
+FROM --platform=$BUILDPLATFORM golang:1.27-alpine AS build
 
 WORKDIR /src
 RUN apk add --no-cache ca-certificates && mkdir -p /out/data
@@ -8,7 +11,8 @@ COPY cmd ./cmd
 COPY internal ./internal
 
 ARG VERSION=dev
-RUN CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" -o /out/phila-trashday ./cmd/phila-trashday
+ARG TARGETOS TARGETARCH
+RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" -o /out/phila-trashday ./cmd/phila-trashday
 
 FROM scratch
 
