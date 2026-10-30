@@ -105,7 +105,7 @@ volumes:
   phila-trashday-data:
 ```
 
-To add extra holidays, mount a file at `/config/holidays.txt` too. Use an absolute host path if a tool like Komodo deploys the stack, since it may resolve relative paths somewhere the Docker daemon can't see.
+To add extra holidays, mount a file at `/config/holidays.txt` too. Make sure the file exists first: if it doesn't, Docker creates an empty directory in its place, and `/healthz` reports the file can't be read.
 
 The image is `FROM scratch` and runs as `nobody` (UID 65534). A named volume at `/data` starts out writable. If you bind-mount a host directory there instead, make it writable by UID 65534 (`chown 65534:65534`), or saving addresses fails with a message saying so.
 
