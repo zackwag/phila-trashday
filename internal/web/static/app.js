@@ -391,14 +391,32 @@ function feedURL(data, file) {
   return url;
 }
 
+// feedNote says where the feed link works and how to keep its reminders.
+function feedNote(isPublic) {
+  if (isPublic) {
+    return 'This link works from anywhere, so iCloud and Skylight can subscribe to it. '
+      + 'On a Mac, uncheck Remove Alerts when Calendar asks, or the reminders are dropped.';
+  }
+  if (state.saved.public_url) {
+    return 'This link only works on your network. Save this address to get one iCloud and Skylight can reach.';
+  }
+  return 'On a Mac, choose On My Mac when Calendar asks where to add it. '
+    + 'Calendars kept in iCloud are refreshed by Apple\'s servers, which can\'t reach this one.';
+}
+
 function renderFeed(data) {
-  const ics = feedURL(data, 'schedule.ics');
+  // A saved address's public link, when there is one, works for calendar
+  // services as well as on the network, so it's the one to subscribe to.
+  const saved = data.saved && state.saved.addresses.find((a) => a.id === data.saved.id);
+  const publicFeed = saved ? saved.public_feed : '';
+  const ics = publicFeed ? new URL(publicFeed) : feedURL(data, 'schedule.ics');
   ics.searchParams.set('alarm', $('alarm').value);
   // A colon is fine in a query string, and 20:00 reads better than 20%3A00.
   const link = ics.toString().replace('%3A', ':');
   $('feed-url').value = link;
   $('subscribe').href = link.replace(/^https?:/, 'webcal:');
   $('json-link').href = feedURL(data, 'schedule.json').toString();
+  $('feed-note').textContent = feedNote(Boolean(publicFeed));
   renderSave(data);
 }
 

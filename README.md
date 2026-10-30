@@ -84,6 +84,7 @@ For a one-off closure the city announces, list it in an optional file, one date 
 | --- | --- | --- |
 | `HOLIDAYS_FILE` | `/config/holidays.txt` | Optional extra holidays, on top of the city's computed ones |
 | `ADDRESSES_FILE` | `/data/addresses.json` | Where saved addresses are kept |
+| `PUBLIC_URL` | (none) | Where a reverse proxy serves saved addresses' feeds publicly, like `https://example.com/trashday`. The page then offers that link, so iCloud and Skylight can subscribe |
 | `ALARM_TIME` | `20:00` | The feed's default reminder the evening before a pickup, as `HH:MM`, or `off` |
 | `REFRESH_INTERVAL` | `6h` | How long an address lookup is reused, and how often the extra holidays file is re-read |
 | `LISTEN_ADDR` | `:8080` | Where to serve |
@@ -112,6 +113,24 @@ The image is `FROM scratch` and runs as `nobody` (UID 65534). A named volume at 
 Anyone who can reach the server can see and change the saved addresses. That's fine on a home LAN; put it behind authentication before exposing it any further. Another website can't change them from a visitor's browser, because changes need a JSON body (or a `DELETE`), which browsers only send cross-site after a CORS preflight that this server never approves.
 
 To subscribe from Apple Calendar, add the feed as an "On My Mac" subscription. An iCloud subscription is fetched by Apple's servers, which can't reach a LAN address.
+
+## Public feeds
+
+iCloud and Skylight fetch subscribed calendars from their own servers, so they can't reach a LAN address. Expose only the saved addresses' feeds through a reverse proxy, never the page or `/api/addresses`, which have no authentication and would let anyone see or change the saved addresses. A feed URL contains a random 122-bit ID, so it can't be guessed, and a saved address's events are named by that ID, so the feed doesn't spell out the address.
+
+With Caddy, inside the public site's block:
+
+```text
+handle_path /trashday/* {
+	@feed path_regexp ^/a/[0-9a-fA-F-]{36}/schedule\.ics$
+	handle @feed {
+		reverse_proxy phila-trashday:8080
+	}
+	respond 404
+}
+```
+
+Then set `PUBLIC_URL=https://example.com/trashday`. When subscribing in Calendar on a Mac, uncheck **Remove: Alerts** to keep the reminders. It's checked by default. Google Calendar ignores reminders in subscribed feeds.
 
 ## Building
 

@@ -42,6 +42,7 @@ go test -race -cover ./...
 ## Conventions
 
 - Dates are `time.Time` at midnight UTC, made with `schedule.Day`, so they compare with `Equal` and work as map keys. Philadelphia's time zone only decides what today is.
+- Only saved addresses' `/a/{id}/schedule.ics` feeds are meant to be public, behind a reverse proxy (`PUBLIC_URL`). Their event UIDs use the saved ID, not the address, because calendar services fetch them. Never make the page or `/api/addresses` depend on being public: they have no authentication.
 - A saved address's ID is a random v4 UUID from the standard library's `uuid` package, never derived from the address: its URLs have to survive the address changing, and shouldn't reveal it.
 - A pickup's ID is its usual date plus its slot. Never derive it from the moved date: subscribers like ReminderSync match events by UID, and a holiday has to look like a move, not a delete and a create.
 - Don't fetch anything from phila.gov that sits behind its bot-blocking CDN (`www.phila.gov`, `api.phila.gov/phila/trashday`). AIS and Carto aren't blocked. Holidays are computed in `schedule.CityHolidays`, which is tested against the list the city's trashday endpoint returned for 2026. If the city adds or drops a holiday, change the rules and that test together, checking against the endpoint in a browser.

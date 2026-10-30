@@ -124,9 +124,16 @@ func TestSavedAddressURLs(t *testing.T) {
 	}
 
 	ics := f.get("/a/" + home.ID + "/schedule.ics?alarm=21:00").Body.String()
-	for _, want := range []string{"X-WR-CALNAME:Trash and recycling (Home)", "1830-fitzwater-st@phila-trashday", "TRIGGER:-PT3H"} {
+	for _, want := range []string{"X-WR-CALNAME:Trash and recycling (Home)", "." + home.ID + "@phila-trashday", "TRIGGER:-PT3H"} {
 		if !strings.Contains(ics, want) {
 			t.Errorf("feed by ID is missing %q", want)
+		}
+	}
+	// Calendar services fetch the feed, so a saved address's feed doesn't
+	// spell out the address, even when it's asked for by address.
+	for _, path := range []string{"/a/" + home.ID + "/schedule.ics", "/schedule.ics?address=1830+FITZWATER+ST", "/schedule.ics"} {
+		if body := f.get(path).Body.String(); strings.Contains(body, "fitzwater") || strings.Contains(body, "FITZWATER") {
+			t.Errorf("%s mentions the address", path)
 		}
 	}
 	if ics := f.get("/a/" + paoli.ID + "/schedule.ics").Body.String(); !strings.Contains(ics, "X-WR-CALNAME:Trash and recycling\r\n") {
@@ -140,6 +147,27 @@ func TestSavedAddressURLs(t *testing.T) {
 		if rec := f.get(path); rec.Code != http.StatusNotFound {
 			t.Errorf("GET %s = %d, want 404", path, rec.Code)
 		}
+	}
+}
+
+func TestPublicFeed(t *testing.T) {
+	f := newFixture(t)
+	if got := f.mustSave("1830 FITZWATER ST", ""); got.PublicFeed != "" {
+		t.Errorf("public_feed = %q without PublicURL, want none", got.PublicFeed)
+	}
+
+	f = newFixture(t, func(c *Config) { c.PublicURL = "https://example.com/trashday" })
+	home := f.mustSave("1830 FITZWATER ST", "Home")
+	want := "https://example.com/trashday/a/" + home.ID + "/schedule.ics"
+	if home.PublicFeed != want {
+		t.Errorf("public_feed = %q, want %q", home.PublicFeed, want)
+	}
+	list := f.list()
+	if got := list.Addresses[0].PublicFeed; got != want {
+		t.Errorf("listed public_feed = %q, want %q", got, want)
+	}
+	if list.PublicURL != "https://example.com/trashday" {
+		t.Errorf("public_url = %q", list.PublicURL)
 	}
 }
 

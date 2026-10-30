@@ -67,6 +67,12 @@ type Config struct {
 	// AddressesFile is where saved addresses are kept. Empty turns saving
 	// off.
 	AddressesFile string
+	// PublicURL is where a reverse proxy serves saved addresses' feeds from
+	// outside the network, without a trailing slash, like
+	// https://example.com/trashday. The page shows it so calendar services
+	// like iCloud and Skylight can subscribe. Empty means the feeds aren't
+	// public.
+	PublicURL string
 	// Alarm is the feed's alert, relative to the start of the pickup day,
 	// when the feed URL doesn't choose one. Nil means no alert.
 	Alarm *time.Duration
@@ -556,10 +562,15 @@ func (s *Service) serveICS(w http.ResponseWriter, r *http.Request) {
 		Refresh: s.cfg.Refresh,
 		Events:  make([]ical.Event, len(v.collections)),
 	}
-	slug := slugify(v.property.Address)
+	// A saved address's events are named by its ID, so the feed, which
+	// calendar services fetch, doesn't spell out the address.
+	owner := slugify(v.property.Address)
+	if v.saved != nil {
+		owner = v.saved.ID.String()
+	}
 	for i, c := range v.collections {
 		e := ical.Event{
-			UID:     c.ID + "." + slug + "@phila-trashday",
+			UID:     c.ID + "." + owner + "@phila-trashday",
 			Date:    c.Date,
 			Summary: c.Summary(),
 			Alarm:   alarm,
