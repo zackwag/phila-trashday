@@ -53,16 +53,14 @@ var (
 	errBadLabel     = errors.New("bad label")
 )
 
-// LoadSaved reads the saved addresses. If there's no saved addresses file
-// yet but there's a home address from 0.1.0 at cfg.LegacyAddressFile, that
-// address becomes the first saved one, labeled Home, and the default.
+// LoadSaved reads the saved addresses. A missing file means none are saved.
 func (s *Service) LoadSaved() error {
 	if s.cfg.AddressesFile == "" {
 		return nil
 	}
 	b, err := os.ReadFile(s.cfg.AddressesFile)
 	if errors.Is(err, fs.ErrNotExist) {
-		return s.importLegacy()
+		return nil
 	}
 	if err != nil {
 		return fmt.Errorf("read saved addresses: %w", err)
@@ -87,39 +85,6 @@ func (s *Service) LoadSaved() error {
 	s.savedMu.Lock()
 	defer s.savedMu.Unlock()
 	s.saved, s.defaultID = f.Addresses, f.Default
-	return nil
-}
-
-// importLegacy turns 0.1.0's single home address into the first saved
-// address.
-func (s *Service) importLegacy() error {
-	if s.cfg.LegacyAddressFile == "" {
-		return nil
-	}
-	b, err := os.ReadFile(s.cfg.LegacyAddressFile)
-	if errors.Is(err, fs.ErrNotExist) {
-		return nil
-	}
-	if err != nil {
-		return fmt.Errorf("read home address: %w", err)
-	}
-	address, err := cleanAddress(string(b))
-	if err != nil {
-		return fmt.Errorf("%s: %w", s.cfg.LegacyAddressFile, err)
-	}
-
-	home := Saved{ID: uuid.NewV4(), Address: address, Label: "Home", CreatedAt: s.cfg.Now().UTC()}
-	s.savedMu.Lock()
-	defer s.savedMu.Unlock()
-	s.saved, s.defaultID = []Saved{home}, home.ID
-	if err := s.persist(); err != nil {
-		// Serving it is still better than losing it, but until it's
-		// written, it gets a new ID, and so new URLs, on every start.
-		s.cfg.Logger.Warn("imported the home address but couldn't save it; its links change on every restart until it's saved",
-			"address", address, "err", err)
-		return nil
-	}
-	s.cfg.Logger.Info("imported the home address as a saved address", "address", address, "id", home.ID)
 	return nil
 }
 

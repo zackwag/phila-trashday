@@ -7,7 +7,6 @@
 //
 //	HOLIDAYS_FILE     the city's holidays, one YYYY-MM-DD per line (default /config/holidays.txt)
 //	ADDRESSES_FILE    where saved addresses are kept (default /data/addresses.json)
-//	ADDRESS_FILE      0.1.0's home address, imported once if ADDRESSES_FILE doesn't exist (default /data/address.txt)
 //	ALARM_TIME        when feeds alert the evening before a pickup, as HH:MM, or "off" (default 20:00)
 //	REFRESH_INTERVAL  how long an address lookup is reused, and how often holidays are re-read (default 6h)
 //	LISTEN_ADDR       where to serve (default :8080)
@@ -39,7 +38,6 @@ var version = "dev"
 type config struct {
 	holidaysFile  string
 	addressesFile string
-	legacyAddress string
 	alarm         *time.Duration
 	refresh       time.Duration
 	listenAddr    string
@@ -73,14 +71,13 @@ func run(logger *slog.Logger) error {
 			BaseURL:   ais.DefaultBaseURL,
 			UserAgent: "phila-trashday/" + version + " (+https://github.com/zackwag/phila-trashday)",
 		},
-		HolidaysFile:      cfg.holidaysFile,
-		AddressesFile:     cfg.addressesFile,
-		LegacyAddressFile: cfg.legacyAddress,
-		Alarm:             cfg.alarm,
-		Refresh:           cfg.refresh,
-		Location:          loc,
-		Logger:            logger,
-		Site:              web.Handler(),
+		HolidaysFile:  cfg.holidaysFile,
+		AddressesFile: cfg.addressesFile,
+		Alarm:         cfg.alarm,
+		Refresh:       cfg.refresh,
+		Location:      loc,
+		Logger:        logger,
+		Site:          web.Handler(),
 	})
 	if err := svc.LoadSaved(); err != nil {
 		return err
@@ -118,7 +115,6 @@ func loadConfig(getenv func(string) string) (config, error) {
 	cfg := config{
 		holidaysFile:  or(getenv("HOLIDAYS_FILE"), "/config/holidays.txt"),
 		addressesFile: or(getenv("ADDRESSES_FILE"), "/data/addresses.json"),
-		legacyAddress: or(getenv("ADDRESS_FILE"), "/data/address.txt"),
 		listenAddr:    or(getenv("LISTEN_ADDR"), ":8080"),
 	}
 

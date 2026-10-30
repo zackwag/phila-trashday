@@ -100,7 +100,6 @@ type fixture struct {
 	fetcher  *fakeFetcher
 	holidays string
 	saved    string
-	legacy   string
 	now      time.Time
 }
 
@@ -113,18 +112,16 @@ func newFixture(t *testing.T, opts ...func(*Config)) *fixture {
 		fetcher:  newFakeFetcher(),
 		holidays: filepath.Join(dir, "holidays.txt"),
 		saved:    filepath.Join(dir, "addresses.json"),
-		legacy:   filepath.Join(dir, "address.txt"),
 		now:      time.Date(2026, 10, 30, 12, 0, 0, 0, philly),
 	}
 	cfg := Config{
-		Fetcher:           f.fetcher,
-		HolidaysFile:      f.holidays,
-		AddressesFile:     f.saved,
-		LegacyAddressFile: f.legacy,
-		Alarm:             &alarm,
-		Refresh:           6 * time.Hour,
-		Location:          philly,
-		Now:               func() time.Time { return f.now },
+		Fetcher:       f.fetcher,
+		HolidaysFile:  f.holidays,
+		AddressesFile: f.saved,
+		Alarm:         &alarm,
+		Refresh:       6 * time.Hour,
+		Location:      philly,
+		Now:           func() time.Time { return f.now },
 	}
 	for _, opt := range opts {
 		opt(&cfg)

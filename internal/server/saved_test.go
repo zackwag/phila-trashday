@@ -392,71 +392,19 @@ func TestLoadSaved(t *testing.T) {
 		})
 	}
 
-	t.Run("unreadable", func(t *testing.T) {
-		if err := New(Config{AddressesFile: t.TempDir()}).LoadSaved(); err == nil {
-			t.Error("LoadSaved() of a directory succeeded")
-		}
-	})
-}
-
-func TestImportLegacyAddress(t *testing.T) {
-	f := newFixture(t)
-	if err := os.WriteFile(f.legacy, []byte("1830 FITZWATER ST\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := f.svc.LoadSaved(); err != nil {
-		t.Fatal(err)
-	}
-	list := f.list()
-	if len(list.Addresses) != 1 || list.Addresses[0].Label != "Home" || !list.Addresses[0].Default {
-		t.Fatalf("after import = %+v, want one default address labeled Home", list.Addresses)
-	}
-
-	// Next start reads the saved file instead of importing again, so the
-	// ID and its URLs stay the same.
-	again := New(Config{AddressesFile: f.saved, LegacyAddressFile: f.legacy})
-	if err := again.LoadSaved(); err != nil {
-		t.Fatal(err)
-	}
-	if saved, _ := again.savedList(); len(saved) != 1 || saved[0].ID.String() != list.Addresses[0].ID {
-		t.Errorf("reloaded %+v, want the same ID as the import", saved)
-	}
-
-	t.Run("can't save the import", func(t *testing.T) {
-		dir := t.TempDir()
-		legacy := filepath.Join(dir, "address.txt")
-		if err := os.WriteFile(legacy, []byte("582 PAOLI AVE"), 0o600); err != nil {
-			t.Fatal(err)
-		}
-		svc := New(Config{AddressesFile: filepath.Join(dir, "missing", "addresses.json"), LegacyAddressFile: legacy})
+	t.Run("no file yet", func(t *testing.T) {
+		svc := New(Config{AddressesFile: filepath.Join(t.TempDir(), "addresses.json")})
 		if err := svc.LoadSaved(); err != nil {
 			t.Fatal(err)
 		}
-		if saved, _ := svc.savedList(); len(saved) != 1 {
-			t.Errorf("import that couldn't be saved isn't served: %+v", saved)
+		if saved, def := svc.savedList(); len(saved) != 0 || def != uuid.Nil() {
+			t.Errorf("loaded %+v, default %v, want nothing", saved, def)
 		}
 	})
 
-	t.Run("no legacy file", func(t *testing.T) {
-		for _, legacy := range []string{"", filepath.Join(t.TempDir(), "none.txt")} {
-			svc := New(Config{AddressesFile: filepath.Join(t.TempDir(), "addresses.json"), LegacyAddressFile: legacy})
-			if err := svc.LoadSaved(); err != nil {
-				t.Errorf("LoadSaved() with legacy %q = %v", legacy, err)
-			}
-		}
-	})
-
-	t.Run("bad legacy file", func(t *testing.T) {
-		dir := t.TempDir()
-		legacy := filepath.Join(dir, "address.txt")
-		if err := os.WriteFile(legacy, []byte("<b>"), 0o600); err != nil {
-			t.Fatal(err)
-		}
-		if err := New(Config{AddressesFile: filepath.Join(dir, "a.json"), LegacyAddressFile: legacy}).LoadSaved(); err == nil {
-			t.Error("LoadSaved() imported a bad address")
-		}
-		if err := New(Config{AddressesFile: filepath.Join(dir, "a.json"), LegacyAddressFile: dir}).LoadSaved(); err == nil {
-			t.Error("LoadSaved() read a directory as the legacy address")
+	t.Run("unreadable", func(t *testing.T) {
+		if err := New(Config{AddressesFile: t.TempDir()}).LoadSaved(); err == nil {
+			t.Error("LoadSaved() of a directory succeeded")
 		}
 	})
 }

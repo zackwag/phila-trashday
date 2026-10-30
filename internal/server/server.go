@@ -72,9 +72,6 @@ type Config struct {
 	// AddressesFile is where saved addresses are kept. Empty turns saving
 	// off.
 	AddressesFile string
-	// LegacyAddressFile is where 0.1.0 kept its single home address. It's
-	// imported once, when AddressesFile doesn't exist yet.
-	LegacyAddressFile string
 	// Alarm is the feed's alert, relative to the start of the pickup day,
 	// when the feed URL doesn't choose one. Nil means no alert.
 	Alarm *time.Duration

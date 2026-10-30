@@ -67,7 +67,6 @@ The file is re-read every 6 hours, so edits apply without a restart. A year with
 | --- | --- | --- |
 | `HOLIDAYS_FILE` | `/config/holidays.txt` | The holidays file |
 | `ADDRESSES_FILE` | `/data/addresses.json` | Where saved addresses are kept |
-| `ADDRESS_FILE` | `/data/address.txt` | 0.1.0's single home address. If `ADDRESSES_FILE` doesn't exist yet, it's imported once as a saved address labeled Home, and made the default |
 | `ALARM_TIME` | `20:00` | The feed's default reminder the evening before a pickup, as `HH:MM`, or `off` |
 | `REFRESH_INTERVAL` | `6h` | How long an address lookup is reused, and how often holidays are re-read |
 | `LISTEN_ADDR` | `:8080` | Where to serve |

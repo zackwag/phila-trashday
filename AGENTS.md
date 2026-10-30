@@ -36,7 +36,7 @@ go test -race -cover ./...
 - `internal/schedule/`: the pickup and holiday rules, and the holidays file parser. Pure functions, no I/O.
 - `internal/ais/`: the AIS address lookup.
 - `internal/ical/`: the iCalendar writer (escaping, line folding, alarms).
-- `internal/server/`: address lookups and their cache, holiday reloads, warnings, and the schedule handlers in `server.go`; saved addresses, their file, the 0.1.0 import and `/api/addresses` in `saved.go`.
+- `internal/server/`: address lookups and their cache, holiday reloads, warnings, and the schedule handlers in `server.go`; saved addresses, their file and `/api/addresses` in `saved.go`.
 - `internal/web/`: the page, embedded from `static/`, with its Content-Security-Policy.
 
 ## Conventions
