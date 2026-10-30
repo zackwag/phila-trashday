@@ -13,4 +13,4 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Create / update release PR, or tag + publish a GitHub Release
-        uses: googleapis/release-please-action@v4
+        uses: googleapis/release-please-action@v5
