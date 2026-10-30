@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.3.0](https://github.com/zackwag/phila-trashday/compare/v0.2.0...v0.3.0) (2026-10-30)
+
+
+### Features
+
+* compute the city's holidays instead of reading them from a file ([#14](https://github.com/zackwag/phila-trashday/issues/14)) ([c6f5649](https://github.com/zackwag/phila-trashday/commit/c6f5649157344033f2a1e0605d62972fb38b7d98))
+* offer public feed links and keep addresses out of saved feeds ([#16](https://github.com/zackwag/phila-trashday/issues/16)) ([8718907](https://github.com/zackwag/phila-trashday/commit/8718907ca42baa9a5092da93ea7fe5fb77c7943a))
+
 ## [0.2.0](https://github.com/zackwag/phila-trashday/compare/v0.1.0...v0.2.0) (2026-10-30)
 
 
