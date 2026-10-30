@@ -6,7 +6,6 @@ services:
     ports:
       - "8080:8080"
     volumes:
-      - ./holidays.txt:/config/holidays.txt:ro
       - phila-trashday-data:/data
 
 volumes:

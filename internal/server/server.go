@@ -1,7 +1,7 @@
 // Package server serves Philadelphia trash and recycling schedules for any
 // address, as JSON and as iCalendar feeds. Addresses are looked up on
-// request and remembered for a while, and the city's holidays come from a
-// file that's re-read in the background. Addresses can be saved under
+// request and remembered for a while. The city's holidays are computed, and
+// a file of extra ones is re-read in the background. Addresses can be saved under
 // random IDs, each with its own stable URLs, and one of them is the default
 // for requests that don't name an address.
 package server
@@ -13,9 +13,9 @@ import (
 	"fmt"
 	"io/fs"
 	"log/slog"
+	"maps"
 	"net/http"
 	"os"
-	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -34,12 +34,6 @@ const (
 )
 
 const (
-	// holidayWarningDays is how far ahead a year with no holidays listed
-	// raises a warning. The window always reaches into next year, so warning
-	// about it all year would make the warning meaningless. Two months gives
-	// time to add next year's holidays before the first one.
-	holidayWarningDays = 60
-
 	// retryAfter is how long a failed lookup is remembered before the city
 	// is asked again, so a mistyped address or an outage doesn't send a
 	// request to the city for every page load.
@@ -66,8 +60,9 @@ type Fetcher interface {
 type Config struct {
 	// Fetcher looks addresses up.
 	Fetcher Fetcher
-	// HolidaysFile is re-read every Refresh, so edits take effect without a
-	// restart. A missing file means no holidays.
+	// HolidaysFile lists extra holidays, on top of the city's own, like a
+	// closure the mayor announces. It's re-read every Refresh, so edits take
+	// effect without a restart. It's optional.
 	HolidaysFile string
 	// AddressesFile is where saved addresses are kept. Empty turns saving
 	// off.
@@ -75,8 +70,9 @@ type Config struct {
 	// Alarm is the feed's alert, relative to the start of the pickup day,
 	// when the feed URL doesn't choose one. Nil means no alert.
 	Alarm *time.Duration
-	// Refresh is how long a lookup is reused, how often the holidays file is
-	// re-read, and how often the feed asks subscribers to fetch it again.
+	// Refresh is how long a lookup is reused, how often the extra holidays
+	// file is re-read, and how often the feed asks subscribers to fetch it
+	// again.
 	Refresh time.Duration
 	// MaxAddresses is how many addresses' lookups are remembered. The least
 	// recently used one is forgotten first. Zero means 1000.
@@ -94,14 +90,14 @@ type Config struct {
 	Site http.Handler
 }
 
-// Service holds the holidays and remembered lookups, and serves schedules.
+// Service holds the extra holidays and remembered lookups, and serves
+// schedules.
 type Service struct {
 	cfg Config
 
-	mu              sync.RWMutex
-	holidays        schedule.Holidays
-	holidaysErr     error
-	holidaysMissing bool
+	mu          sync.RWMutex
+	extra       schedule.Holidays
+	holidaysErr error
 
 	lookupsMu sync.Mutex
 	lookups   map[string]*lookup
@@ -130,8 +126,8 @@ type lookup struct {
 	usedAt time.Time
 }
 
-// New returns a Service with no holidays or saved addresses loaded. Call
-// ReloadHolidays or Run, and LoadSaved, to load them.
+// New returns a Service with no extra holidays or saved addresses loaded.
+// Call ReloadHolidays or Run, and LoadSaved, to load them.
 func New(cfg Config) *Service {
 	if cfg.Now == nil {
 		cfg.Now = time.Now
@@ -146,14 +142,14 @@ func New(cfg Config) *Service {
 		cfg.MaxAddresses = defaultMaxAddresses
 	}
 	return &Service{
-		cfg:      cfg,
-		holidays: schedule.Holidays{},
-		lookups:  map[string]*lookup{},
+		cfg:     cfg,
+		extra:   schedule.Holidays{},
+		lookups: map[string]*lookup{},
 	}
 }
 
-// Run re-reads the holidays file now and then every cfg.Refresh until ctx
-// is done.
+// Run re-reads the extra holidays file now and then every cfg.Refresh until
+// ctx is done.
 func (s *Service) Run(ctx context.Context) {
 	for {
 		if err := s.ReloadHolidays(); err != nil {
@@ -170,39 +166,49 @@ func (s *Service) Run(ctx context.Context) {
 	}
 }
 
-// ReloadHolidays re-reads the holidays file. When it can't be read, the
-// last good copy stays in use and the failure is reported as a warning until
-// a later reload succeeds.
+// ReloadHolidays re-reads the extra holidays file. When it can't be read,
+// the last good copy stays in use and the failure is reported as a warning
+// until a later reload succeeds.
 func (s *Service) ReloadHolidays() error {
-	holidays, missing, err := s.loadHolidays()
+	extra, err := s.loadHolidays()
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.holidaysErr = err
-	s.holidaysMissing = missing
 	if err == nil {
-		s.holidays = holidays
+		s.extra = extra
 	}
 	return err
 }
 
-// loadHolidays reads the holidays file, reporting a missing file separately
-// from one that can't be read.
-func (s *Service) loadHolidays() (holidays schedule.Holidays, missing bool, err error) {
+// loadHolidays reads the extra holidays file. A missing file means none.
+func (s *Service) loadHolidays() (schedule.Holidays, error) {
 	f, err := os.Open(s.cfg.HolidaysFile)
 	if errors.Is(err, fs.ErrNotExist) {
-		return schedule.Holidays{}, true, nil
+		return schedule.Holidays{}, nil
 	}
 	if err != nil {
-		return nil, false, fmt.Errorf("open holidays file: %w", err)
+		return nil, fmt.Errorf("open holidays file: %w", err)
 	}
 	defer func() { _ = f.Close() }()
 
-	holidays, err = schedule.ParseHolidays(f)
+	extra, err := schedule.ParseHolidays(f)
 	if err != nil {
-		return nil, false, fmt.Errorf("%s: %w", s.cfg.HolidaysFile, err)
+		return nil, fmt.Errorf("%s: %w", s.cfg.HolidaysFile, err)
 	}
-	return holidays, false, nil
+	return extra, nil
+}
+
+// holidays returns the city's holidays for every year from..to touches, plus
+// the extra ones. Pickups are built from the week before from, so the year
+// before is included too. The caller holds s.mu.
+func (s *Service) holidays(from, to time.Time) schedule.Holidays {
+	all := schedule.Holidays{}
+	for year := from.Year() - 1; year <= to.Year(); year++ {
+		maps.Copy(all, schedule.CityHolidays(year))
+	}
+	maps.Copy(all, s.extra)
+	return all
 }
 
 // errBadAddress is wrapped by the errors cleanAddress returns.
@@ -309,7 +315,6 @@ type view struct {
 	saved          *Saved
 	savedIsDefault bool
 	generated      time.Time
-	years          []int
 	holidays       []schedule.Holiday
 	collections    []schedule.Collection
 	warnings       []string
@@ -322,13 +327,13 @@ func (s *Service) view(r resolved) view {
 
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+	holidays := s.holidays(from, to)
 	v := view{
 		resolved:    r,
 		generated:   now,
-		years:       s.holidays.Years(),
-		holidays:    s.holidays.Between(from, to),
-		collections: schedule.Build(r.property.Days, s.holidays, from, to),
-		warnings:    s.holidayWarnings(today),
+		holidays:    holidays.Between(from, to),
+		collections: schedule.Build(r.property.Days, holidays, from, to),
+		warnings:    s.holidayWarnings(),
 	}
 	if r.warning != "" {
 		v.warnings = append(v.warnings, r.warning)
@@ -336,24 +341,13 @@ func (s *Service) view(r resolved) view {
 	return v
 }
 
-// holidayWarnings lists what's wrong with the holidays. The caller holds
-// s.mu.
-func (s *Service) holidayWarnings(today time.Time) []string {
-	var w []string
-	switch {
-	case s.holidaysErr != nil:
-		w = append(w, fmt.Sprintf("can't read holidays (%v), so the last good copy is in use", s.holidaysErr))
-	case s.holidaysMissing:
-		return append(w, fmt.Sprintf("no holidays file at %s, so no pickups are moved for holidays", s.cfg.HolidaysFile))
+// holidayWarnings lists what's wrong with the extra holidays file. The
+// caller holds s.mu.
+func (s *Service) holidayWarnings() []string {
+	if s.holidaysErr != nil {
+		return []string{fmt.Sprintf("can't read the extra holidays file (%v), so its last good copy is in use", s.holidaysErr)}
 	}
-
-	years := s.holidays.Years()
-	for y := today.Year(); y <= today.AddDate(0, 0, holidayWarningDays).Year(); y++ {
-		if !slices.Contains(years, y) {
-			w = append(w, fmt.Sprintf("no holidays listed for %d, so pickups that year aren't moved for holidays", y))
-		}
-	}
-	return w
+	return nil
 }
 
 // ParseAlarm turns a time the evening before a pickup into an offset from
@@ -427,7 +421,6 @@ type scheduleJSON struct {
 	SecondaryDay  string             `json:"secondary_day,omitempty"`
 	DaysFetchedAt time.Time          `json:"days_fetched_at"`
 	GeneratedAt   time.Time          `json:"generated_at"`
-	HolidayYears  []int              `json:"holiday_years"`
 	Holidays      []holidayJSON      `json:"holidays"`
 	Warnings      []string           `json:"warnings"`
 	Collections   []collectionJSON   `json:"collections"`
@@ -512,7 +505,6 @@ func (s *Service) serveJSON(w http.ResponseWriter, r *http.Request) {
 		PrimaryDay:    days.Primary.String(),
 		DaysFetchedAt: v.fetchedAt.UTC(),
 		GeneratedAt:   v.generated.UTC(),
-		HolidayYears:  orEmpty(v.years),
 		Holidays:      make([]holidayJSON, len(v.holidays)),
 		Warnings:      orEmpty(v.warnings),
 		Collections:   make([]collectionJSON, len(v.collections)),
@@ -585,9 +577,8 @@ func (s *Service) serveICS(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Service) serveHealth(w http.ResponseWriter, _ *http.Request) {
-	today := schedule.Day(s.cfg.Now().In(s.cfg.Location))
 	s.mu.RLock()
-	warnings := s.holidayWarnings(today)
+	warnings := s.holidayWarnings()
 	s.mu.RUnlock()
 
 	if len(warnings) > 0 {

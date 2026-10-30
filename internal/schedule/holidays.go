@@ -37,20 +37,6 @@ func ParseHolidays(r io.Reader) (Holidays, error) {
 	return holidays, nil
 }
 
-// Years returns the years that have at least one holiday listed, in order.
-// A year missing from it means nobody has filled in its holidays yet, not
-// that it has none.
-func (h Holidays) Years() []int {
-	var years []int
-	for d := range h {
-		if !slices.Contains(years, d.Year()) {
-			years = append(years, d.Year())
-		}
-	}
-	slices.Sort(years)
-	return years
-}
-
 // observed reports whether d is a holiday that affects collections.
 func (h Holidays) observed(d time.Time) bool {
 	_, ok := h[d]
