@@ -1,7 +1,8 @@
 // Finds an address's schedule, shows when to put the bins out, and builds
-// the calendar feed link. The address being viewed is kept in this
-// browser's localStorage; a home address saved on the server is the
-// fallback for every browser.
+// the calendar feed link. Addresses can be saved on the server, each with
+// its own /a/{id} link. The address being viewed is kept in this browser's
+// localStorage; the default saved address is the fallback for every
+// browser.
 
 const ADDRESS_KEY = 'phila-trashday.address';
 const ALARM_KEY = 'phila-trashday.alarm';
@@ -11,12 +12,19 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 // How far ahead the list goes before "Show the rest of the year".
 const UPCOMING_DAYS = 42;
 
+// How long "Remove" waits for its confirming second click.
+const CONFIRM_MS = 4000;
+
+// A saved address's page: /a/ and its ID.
+const SAVED_PATH = /^\/a\/([0-9a-f-]{36})$/i;
+
 const $ = (id) => document.getElementById(id);
 
 const state = {
   // data is the last /schedule.json response.
   data: null,
-  home: { address: '', saving: false },
+  // saved is the last /api/addresses response.
+  saved: { addresses: [], saving: false },
   showAll: false,
 };
 
@@ -372,50 +380,90 @@ function renderHolidays(data) {
 
 // The calendar feed
 
-function isHome(data) {
-  return state.home.address !== '' && state.home.address === data.address;
-}
-
-// feedURL leaves the address out for the home address, so a subscription
-// follows the home address if it's ever changed.
-function feedURL(data, path) {
-  const url = new URL(path, window.location.origin);
-  if (!isHome(data)) {
-    url.searchParams.set('address', data.address);
+// feedURL is a saved address's own link, which keeps working if it's
+// renamed or its address changes, or else the link by address.
+function feedURL(data, file) {
+  if (data.saved) {
+    return new URL(`/a/${data.saved.id}/${file}`, window.location.origin);
   }
+  const url = new URL(`/${file}`, window.location.origin);
+  url.searchParams.set('address', data.address);
   return url;
 }
 
 function renderFeed(data) {
-  const alarm = $('alarm').value;
-  const ics = feedURL(data, '/schedule.ics');
-  ics.searchParams.set('alarm', alarm);
+  const ics = feedURL(data, 'schedule.ics');
+  ics.searchParams.set('alarm', $('alarm').value);
   // A colon is fine in a query string, and 20:00 reads better than 20%3A00.
   const link = ics.toString().replace('%3A', ':');
   $('feed-url').value = link;
   $('subscribe').href = link.replace(/^https?:/, 'webcal:');
-  $('json-link').href = feedURL(data, '/schedule.json').toString();
-  renderHome(data);
+  $('json-link').href = feedURL(data, 'schedule.json').toString();
+  renderSave(data);
 }
 
-function renderHome(data) {
-  const { saving, address } = state.home;
-  $('home').hidden = !saving;
-  $('home-error').hidden = true;
-  if (!saving) {
+let removeTimer = 0;
+
+function resetRemove() {
+  clearTimeout(removeTimer);
+  removeTimer = 0;
+  $('remove-saved').textContent = 'Remove';
+}
+
+function renderSave(data) {
+  $('save').hidden = !state.saved.saving;
+  $('save-error').hidden = true;
+  resetRemove();
+  $('save-new').hidden = Boolean(data.saved);
+  $('save-existing').hidden = !data.saved;
+  if (!data.saved) {
     return;
   }
-  if (isHome(data)) {
-    $('home-status').textContent = 'This is the home address. Every device on your network opens to it, and the calendar link above leaves the address out so it follows any change.';
-    $('home-save').hidden = true;
-    $('home-forget').hidden = false;
-  } else {
-    $('home-status').textContent = address
-      ? `The home address is ${displayAddress(address)}. Save this one instead to make it what every device opens to.`
-      : 'Save this address on the server so every device on your network opens to it.';
-    $('home-save').hidden = false;
-    $('home-forget').hidden = true;
-  }
+  const name = data.saved.label ? `as ${data.saved.label}` : 'without a label';
+  $('save-status').textContent = data.saved.default
+    ? `Saved ${name}. It's the default, so every device on your network opens to it.`
+    : `Saved ${name}.`;
+  $('make-default').hidden = data.saved.default;
+}
+
+// renderSavedList fills a list of saved addresses with links to their
+// pages, marking the one being viewed.
+function renderSavedList(list, current) {
+  list.replaceChildren(...state.saved.addresses.map((a) => {
+    const li = document.createElement('li');
+    const link = document.createElement('a');
+    link.href = `/a/${a.id}`;
+    if (a.id === current) {
+      link.setAttribute('aria-current', 'page');
+    }
+    const name = document.createElement('span');
+    name.className = 'saved-name';
+    name.textContent = a.label || displayAddress(a.address);
+    link.append(name);
+    if (a.label) {
+      const address = document.createElement('span');
+      address.className = 'saved-address';
+      address.textContent = displayAddress(a.address);
+      link.append(address);
+    }
+    if (a.default) {
+      const tag = document.createElement('span');
+      tag.className = 'saved-default';
+      tag.textContent = 'Default';
+      link.append(tag);
+    }
+    li.append(link);
+    return li;
+  }));
+}
+
+function renderSaved() {
+  const current = state.data && state.data.saved ? state.data.saved.id : '';
+  const any = state.saved.addresses.length > 0;
+  $('saved-block').hidden = !any;
+  $('picks').hidden = !any;
+  renderSavedList($('saved-list'), current);
+  renderSavedList($('picks-list'), '');
 }
 
 function renderWarnings(data) {
@@ -435,8 +483,15 @@ function render() {
   renderUpcoming(data);
   renderHolidays(data);
   renderFeed(data);
+  renderSaved();
   renderWarnings(data);
   document.title = `Trash night: ${displayAddress(data.address)}`;
+  // A saved address shows its own link in the address bar, so it can be
+  // bookmarked or shared.
+  const path = data.saved ? `/a/${data.saved.id}` : '/';
+  if (window.location.pathname !== path) {
+    history.replaceState(null, '', path);
+  }
 }
 
 // Views
@@ -450,6 +505,10 @@ function showSearch(message) {
   $('search-error').hidden = !message;
   $('search-error').textContent = message || '';
   document.title = 'Trash night';
+  if (window.location.pathname !== '/') {
+    history.replaceState(null, '', '/');
+  }
+  renderSaved();
   $('address').focus();
 }
 
@@ -481,30 +540,32 @@ async function showAddress(address) {
   }
 }
 
-async function loadHome() {
+async function loadSaved() {
   try {
-    const res = await fetch('/api/home');
+    const res = await fetch('/api/addresses');
     if (res.ok) {
-      state.home = await res.json();
+      state.saved = await res.json();
     }
   } catch {
-    // No home address, which the page handles.
+    // Nothing saved, which the page handles.
   }
 }
 
-async function setHome(method, body) {
-  const res = await fetch('/api/home', {
+// changeSaved sends a change to the saved addresses, then reloads them and
+// the schedule, whose saved details may have changed.
+async function changeSaved(method, path, body) {
+  const res = await fetch(path, {
     method,
     headers: body ? { 'Content-Type': 'application/json' } : {},
     body: body ? JSON.stringify(body) : undefined,
   });
   if (!res.ok) {
-    $('home-error').textContent = await errorMessage(res);
-    $('home-error').hidden = false;
+    $('save-error').textContent = await errorMessage(res);
+    $('save-error').hidden = false;
     return;
   }
-  state.home = method === 'DELETE' ? { address: '', saving: true } : await res.json();
-  renderFeed(state.data);
+  await loadSaved();
+  await showAddress(state.data.address);
 }
 
 // The address search box: a combobox over the city's records.
@@ -640,15 +701,45 @@ function wireDetails() {
     }, 2000);
   });
 
-  $('home-save').addEventListener('click', () => setHome('PUT', { address: state.data.address }));
-  $('home-forget').addEventListener('click', () => setHome('DELETE'));
+  $('save-new').addEventListener('submit', (e) => {
+    e.preventDefault();
+    changeSaved('POST', '/api/addresses', { address: state.data.address, label: $('save-label').value });
+    $('save-label').value = '';
+  });
+  $('make-default').addEventListener('click', () => {
+    changeSaved('PATCH', `/api/addresses/${state.data.saved.id}`, { default: true });
+  });
+  // Removing breaks every calendar subscribed to the address's link, so it
+  // takes a second click.
+  $('remove-saved').addEventListener('click', () => {
+    if (!removeTimer) {
+      $('remove-saved').textContent = 'Its links will stop working. Click again to remove';
+      removeTimer = setTimeout(resetRemove, CONFIRM_MS);
+      return;
+    }
+    resetRemove();
+    changeSaved('DELETE', `/api/addresses/${state.data.saved.id}`);
+  });
 }
 
 async function start() {
   wireSearch();
   wireDetails();
-  await loadHome();
-  const address = load(ADDRESS_KEY) || state.home.address;
+  await loadSaved();
+
+  const match = SAVED_PATH.exec(window.location.pathname);
+  if (match) {
+    const saved = state.saved.addresses.find((a) => a.id === match[1].toLowerCase());
+    if (saved) {
+      await showAddress(saved.address);
+    } else {
+      showSearch('That saved address has been removed. Search for it again, or pick another one.');
+    }
+    return;
+  }
+
+  const fallback = state.saved.addresses.find((a) => a.default);
+  const address = load(ADDRESS_KEY) || (fallback ? fallback.address : '');
   if (address) {
     await showAddress(address);
   } else {

@@ -19,7 +19,8 @@ func TestLoadConfig(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.holidaysFile != "/config/holidays.txt" || cfg.addressFile != "/data/address.txt" ||
+	if cfg.holidaysFile != "/config/holidays.txt" || cfg.addressesFile != "/data/addresses.json" ||
+		cfg.legacyAddress != "/data/address.txt" ||
 		cfg.listenAddr != ":8080" || cfg.refresh != 6*time.Hour {
 		t.Errorf("defaults = %+v", cfg)
 	}
@@ -29,6 +30,7 @@ func TestLoadConfig(t *testing.T) {
 
 	cfg, err = loadConfig(env(map[string]string{
 		"HOLIDAYS_FILE":    "/data/h.txt",
+		"ADDRESSES_FILE":   "/state/saved.json",
 		"ADDRESS_FILE":     "/state/home",
 		"LISTEN_ADDR":      ":9000",
 		"REFRESH_INTERVAL": "1h",
@@ -37,7 +39,8 @@ func TestLoadConfig(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.holidaysFile != "/data/h.txt" || cfg.addressFile != "/state/home" || cfg.listenAddr != ":9000" ||
+	if cfg.holidaysFile != "/data/h.txt" || cfg.addressesFile != "/state/saved.json" ||
+		cfg.legacyAddress != "/state/home" || cfg.listenAddr != ":9000" ||
 		cfg.refresh != time.Hour || cfg.alarm != nil {
 		t.Errorf("overrides = %+v", cfg)
 	}
