@@ -105,7 +105,6 @@ type fixture struct {
 
 func newFixture(t *testing.T, opts ...func(*Config)) *fixture {
 	t.Helper()
-	alarm := -4 * time.Hour
 	dir := t.TempDir()
 	f := &fixture{
 		t:        t,
@@ -118,7 +117,6 @@ func newFixture(t *testing.T, opts ...func(*Config)) *fixture {
 		Fetcher:       f.fetcher,
 		HolidaysFile:  f.holidays,
 		AddressesFile: f.saved,
-		Alarm:         &alarm,
 		Refresh:       6 * time.Hour,
 		Location:      philly,
 		Now:           func() time.Time { return f.now },
@@ -599,21 +597,31 @@ func TestParseAlarm(t *testing.T) {
 		"20:00": -4 * time.Hour,
 		"21:30": -(2*time.Hour + 30*time.Minute),
 		"00:00": -24 * time.Hour,
+		"8:05":  -(15*time.Hour + 55*time.Minute),
 	}
 	for in, want := range tests {
-		got, err := ParseAlarm(in)
+		got, err := parseAlarm(in)
 		if err != nil {
 			t.Fatal(err)
 		}
 		if got == nil || *got != want {
-			t.Errorf("ParseAlarm(%q) = %v, want %v", in, got, want)
+			t.Errorf("parseAlarm(%q) = %v, want %v", in, got, want)
 		}
 	}
-	if got, err := ParseAlarm("OFF"); err != nil || got != nil {
-		t.Errorf("ParseAlarm(OFF) = %v, %v, want no alarm", got, err)
+	if got, err := parseAlarm("OFF"); err != nil || got != nil {
+		t.Errorf("parseAlarm(OFF) = %v, %v, want no alarm", got, err)
 	}
-	if _, err := ParseAlarm("8pm"); err == nil {
-		t.Error("ParseAlarm(8pm) succeeded")
+	if _, err := parseAlarm("8pm"); err == nil {
+		t.Error("parseAlarm(8pm) succeeded")
+	}
+}
+
+func TestNormalizeAlarm(t *testing.T) {
+	tests := map[string]string{"20:00": "20:00", "8:05": "08:05", "Off": "off"}
+	for in, want := range tests {
+		if got, err := normalizeAlarm(in); err != nil || got != want {
+			t.Errorf("normalizeAlarm(%q) = %q, %v, want %q", in, got, err, want)
+		}
 	}
 }
 

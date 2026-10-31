@@ -23,22 +23,18 @@ func TestLoadConfig(t *testing.T) {
 		cfg.listenAddr != ":8080" || cfg.refresh != 6*time.Hour {
 		t.Errorf("defaults = %+v", cfg)
 	}
-	if cfg.alarm == nil || *cfg.alarm != -4*time.Hour {
-		t.Errorf("default alarm = %v, want -4h", cfg.alarm)
-	}
 
 	cfg, err = loadConfig(env(map[string]string{
 		"HOLIDAYS_FILE":    "/data/h.txt",
 		"ADDRESSES_FILE":   "/state/saved.json",
 		"LISTEN_ADDR":      ":9000",
 		"REFRESH_INTERVAL": "1h",
-		"ALARM_TIME":       "off",
 	}))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if cfg.holidaysFile != "/data/h.txt" || cfg.addressesFile != "/state/saved.json" || cfg.listenAddr != ":9000" ||
-		cfg.refresh != time.Hour || cfg.alarm != nil {
+		cfg.refresh != time.Hour {
 		t.Errorf("overrides = %+v", cfg)
 	}
 }
@@ -66,7 +62,6 @@ func TestLoadConfigErrors(t *testing.T) {
 	tests := map[string]map[string]string{
 		"REFRESH_INTERVAL": {"REFRESH_INTERVAL": "daily"},
 		"at least 1m":      {"REFRESH_INTERVAL": "10s"},
-		"ALARM_TIME":       {"ALARM_TIME": "8pm"},
 	}
 	for want, vars := range tests {
 		if _, err := loadConfig(env(vars)); err == nil || !strings.Contains(err.Error(), want) {
