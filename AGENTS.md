@@ -26,7 +26,7 @@ go test -race -cover ./...
 ```
 
 - `internal/schedule`, `internal/ais`, `internal/ical` and `internal/server` are at 100% statement coverage. Keep them there. `internal/web` is at 100% apart from a panic that can't happen unless its `//go:embed` changes.
-- The page's JavaScript has no automated tests. Check changes to it in a browser: search with autocomplete, keyboard selection, the reminder picker, saving an address with a label, making it the default, removing it (two clicks), opening `/a/{id}` and a removed address's link, and an unknown address.
+- The page's JavaScript has no automated tests. Check changes to it in a browser: search with autocomplete, keyboard selection, the reminder picker (it saves to a saved address and rewrites the link for an unsaved one), saving an address with a label, making it the default, removing it (two clicks), opening `/a/{id}` and a removed address's link, and an unknown address.
 - Lint (`.github/workflows/lint.yml`) runs golangci-lint with `revive`, `errorlint`, `gocritic` and `misspell` (`.golangci.yml`), plus ShellCheck on `scripts/` and actionlint. Locally: `go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.14.0 run ./...`.
 - CI builds the Docker image and checks the container serves the page and passes its healthcheck.
 

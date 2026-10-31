@@ -8,7 +8,6 @@
 //	HOLIDAYS_FILE     optional extra holidays, one YYYY-MM-DD per line, on top of the city's computed ones (default /config/holidays.txt)
 //	ADDRESSES_FILE    where saved addresses are kept (default /data/addresses.json)
 //	PUBLIC_URL        where a reverse proxy serves saved addresses' feeds publicly, like https://example.com/trashday (optional)
-//	ALARM_TIME        when feeds alert the evening before a pickup, as HH:MM, or "off" (default 20:00)
 //	REFRESH_INTERVAL  how long an address lookup is reused, and how often the extra holidays file is re-read (default 6h)
 //	LISTEN_ADDR       where to serve (default :8080)
 //
@@ -42,7 +41,6 @@ type config struct {
 	holidaysFile  string
 	addressesFile string
 	publicURL     string
-	alarm         *time.Duration
 	refresh       time.Duration
 	listenAddr    string
 }
@@ -78,7 +76,6 @@ func run(logger *slog.Logger) error {
 		HolidaysFile:  cfg.holidaysFile,
 		AddressesFile: cfg.addressesFile,
 		PublicURL:     cfg.publicURL,
-		Alarm:         cfg.alarm,
 		Refresh:       cfg.refresh,
 		Location:      loc,
 		Logger:        logger,
@@ -136,11 +133,6 @@ func loadConfig(getenv func(string) string) (config, error) {
 		return config{}, fmt.Errorf("REFRESH_INTERVAL must be a duration of at least 1m, like 6h, not %q", getenv("REFRESH_INTERVAL"))
 	}
 	cfg.refresh = refresh
-
-	cfg.alarm, err = server.ParseAlarm(or(getenv("ALARM_TIME"), "20:00"))
-	if err != nil {
-		return config{}, fmt.Errorf("ALARM_TIME: %w", err)
-	}
 	return cfg, nil
 }
 

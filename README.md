@@ -7,7 +7,7 @@ Tells you when to put out trash and recycling in Philadelphia. Search for any ad
 - Looks addresses up in the city's [AIS API](https://api.phila.gov/ais/v1/) and remembers each lookup for 6 hours.
 - Works out a year of pickups, moving them for holidays the way phila.gov describes: a weekday holiday pushes that week's primary pickup a day later and cancels the trash-only second pickup.
 - Combines trash and recycling on the same day into one event, like "Trash and recycling".
-- Adds an alert to every feed event, by default at 8 PM the evening before.
+- Adds a reminder to every feed event, 8 PM the evening before unless a saved address has its own time.
 - Saves addresses on the server under random IDs, each with its own page and feed URLs that keep working when the address is renamed or changed. One of them is the default, which every device on the network opens to.
 
 ## The page
@@ -17,7 +17,7 @@ Open the server in a browser and type an address. Suggestions come from the city
 - When to put the bins out, as one big answer: "Tonight." (in streetlamp colors), "Tuesday night." or "Today."
 - The next six weeks of pickups, including the ones a holiday moves or skips.
 - The holidays that change the schedule.
-- The calendar feed link, with a choice of reminder time.
+- The calendar feed link, with a choice of reminder time. For a saved address the time is saved with it, so changing it updates calendars that already subscribe.
 - Saving the address with an optional label, like "Home", making it the default, or removing it. Saved addresses are listed below, and as quick picks under the search box.
 
 A saved address's page is at `/a/{id}`, so it can be bookmarked or shared. The address you're viewing is kept in the browser's local storage, and a browser that has never picked one opens to the default.
@@ -27,11 +27,11 @@ A saved address's page is at `/a/{id}`, so it can be bookmarked or shared. The a
 | Path | What |
 | --- | --- |
 | `/` | The page |
-| `/schedule.ics?address=…&alarm=20:00` | iCalendar feed from a week back to a year ahead. `alarm` is `HH:MM` the night before, or `off`, and defaults to `ALARM_TIME` |
+| `/schedule.ics?address=…&alarm=20:00` | iCalendar feed from a week back to a year ahead. `alarm` is `HH:MM` the night before, or `off`. It defaults to the saved address's reminder, or `20:00` |
 | `/schedule.json?address=…` | The same schedule as JSON, plus the pickup days, holidays and any warnings |
 | `/a/{id}`, `/a/{id}/schedule.ics`, `/a/{id}/schedule.json` | A saved address's page and feeds |
-| `/api/addresses` | `GET` the saved addresses, `POST {"address": "…", "label": "Home"}` to save one |
-| `/api/addresses/{id}` | `PATCH {"label": …, "address": …, "default": true}` to change one, `DELETE` to remove it |
+| `/api/addresses` | `GET` the saved addresses, `POST {"address": "…", "label": "Home", "alarm": "20:00"}` to save one |
+| `/api/addresses/{id}` | `PATCH {"label": …, "address": …, "alarm": …, "default": true}` to change one (an empty `alarm` goes back to `20:00`), `DELETE` to remove it |
 | `/healthz` | `200` with `ok`, or `degraded` when the extra holidays file can't be read |
 
 Prefer a saved address's `/a/{id}/schedule.ics` for subscriptions. It keeps working if the address is renamed or moved, and it doesn't reveal the address. Leave out `address` and the default saved address is used. Addresses can be typed any way AIS understands, like `1830 fitzwater street`, and are saved once in the city's form however they're typed. The first saved address becomes the default, and removing the default makes the oldest remaining one the default. Removing an address breaks its links.
@@ -85,7 +85,6 @@ For a one-off closure the city announces, list it in an optional file, one date 
 | `HOLIDAYS_FILE` | `/config/holidays.txt` | Optional extra holidays, on top of the city's computed ones |
 | `ADDRESSES_FILE` | `/data/addresses.json` | Where saved addresses are kept |
 | `PUBLIC_URL` | (none) | Where a reverse proxy serves saved addresses' feeds publicly, like `https://example.com/trashday`. The page then offers that link, so iCloud and Skylight can subscribe |
-| `ALARM_TIME` | `20:00` | The feed's default reminder the evening before a pickup, as `HH:MM`, or `off` |
 | `REFRESH_INTERVAL` | `6h` | How long an address lookup is reused, and how often the extra holidays file is re-read |
 | `LISTEN_ADDR` | `:8080` | Where to serve |
 

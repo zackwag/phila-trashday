@@ -6,6 +6,8 @@
 
 const ADDRESS_KEY = 'phila-trashday.address';
 const ALARM_KEY = 'phila-trashday.alarm';
+// DEFAULT_ALARM matches the server's default reminder.
+const DEFAULT_ALARM = '20:00';
 const CARTO_URL = 'https://phl.carto.com/api/v2/sql';
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -391,32 +393,60 @@ function feedURL(data, file) {
   return url;
 }
 
+// savedEntry is the saved address data is for, from the saved list.
+function savedEntry(data) {
+  return data.saved ? state.saved.addresses.find((a) => a.id === data.saved.id) : undefined;
+}
+
+// showAlarm selects alarm in the reminder picker, adding it if it's a time
+// the picker doesn't list, like one set through the API.
+function showAlarm(alarm) {
+  const picker = $('alarm');
+  if (![...picker.options].some((o) => o.value === alarm)) {
+    const [h, m] = alarm.split(':').map(Number);
+    const option = document.createElement('option');
+    option.value = alarm;
+    option.textContent = `${h % 12 || 12}:${String(m).padStart(2, '0')} ${h < 12 ? 'AM' : 'PM'}`;
+    picker.append(option);
+  }
+  picker.value = alarm;
+}
+
 // feedNote says where the feed link works and how to keep its reminders.
-function feedNote(isPublic) {
+function feedNote(isPublic, isSaved) {
+  const follows = isSaved ? ' Changing the reminder updates calendars that already subscribe.' : '';
   if (isPublic) {
     return 'This link works from anywhere, so iCloud and Skylight can subscribe to it. '
-      + 'On a Mac, uncheck Remove Alerts when Calendar asks, or the reminders are dropped.';
+      + 'On a Mac, uncheck Remove Alerts when Calendar asks, or the reminders are dropped.' + follows;
   }
   if (state.saved.public_url) {
     return 'This link only works on your network. Save this address to get one iCloud and Skylight can reach.';
   }
   return 'On a Mac, choose On My Mac when Calendar asks where to add it. '
-    + 'Calendars kept in iCloud are refreshed by Apple\'s servers, which can\'t reach this one.';
+    + 'Calendars kept in iCloud are refreshed by Apple\'s servers, which can\'t reach this one.' + follows;
 }
 
 function renderFeed(data) {
   // A saved address's public link, when there is one, works for calendar
   // services as well as on the network, so it's the one to subscribe to.
-  const saved = data.saved && state.saved.addresses.find((a) => a.id === data.saved.id);
+  // Its reminder is saved with it rather than put in the link, so changing
+  // it reaches calendars that already subscribe.
+  const saved = savedEntry(data);
   const publicFeed = saved ? saved.public_feed : '';
   const ics = publicFeed ? new URL(publicFeed) : feedURL(data, 'schedule.ics');
-  ics.searchParams.set('alarm', $('alarm').value);
+  if (saved) {
+    showAlarm(saved.alarm);
+  } else {
+    const remembered = load(ALARM_KEY);
+    showAlarm(/^(\d{2}:\d{2}|off)$/.test(remembered) ? remembered : DEFAULT_ALARM);
+    ics.searchParams.set('alarm', $('alarm').value);
+  }
   // A colon is fine in a query string, and 20:00 reads better than 20%3A00.
   const link = ics.toString().replace('%3A', ':');
   $('feed-url').value = link;
   $('subscribe').href = link.replace(/^https?:/, 'webcal:');
   $('json-link').href = feedURL(data, 'schedule.json').toString();
-  $('feed-note').textContent = feedNote(Boolean(publicFeed));
+  $('feed-note').textContent = feedNote(Boolean(publicFeed), Boolean(saved));
   renderSave(data);
 }
 
@@ -696,11 +726,11 @@ function wireDetails() {
     renderUpcoming(state.data);
   });
 
-  const alarm = load(ALARM_KEY);
-  if ([...$('alarm').options].some((o) => o.value === alarm)) {
-    $('alarm').value = alarm;
-  }
   $('alarm').addEventListener('change', () => {
+    if (state.data.saved) {
+      changeSaved('PATCH', `/api/addresses/${state.data.saved.id}`, { alarm: $('alarm').value });
+      return;
+    }
     save(ALARM_KEY, $('alarm').value);
     renderFeed(state.data);
   });
@@ -721,7 +751,11 @@ function wireDetails() {
 
   $('save-new').addEventListener('submit', (e) => {
     e.preventDefault();
-    changeSaved('POST', '/api/addresses', { address: state.data.address, label: $('save-label').value });
+    changeSaved('POST', '/api/addresses', {
+      address: state.data.address,
+      label: $('save-label').value,
+      alarm: $('alarm').value,
+    });
     $('save-label').value = '';
   });
   $('make-default').addEventListener('click', () => {

@@ -171,6 +171,57 @@ func TestPublicFeed(t *testing.T) {
 	}
 }
 
+func TestSavedAlarm(t *testing.T) {
+	f := newFixture(t)
+	feed := func(id string) string {
+		t.Helper()
+		return f.get("/a/" + id + "/schedule.ics").Body.String()
+	}
+
+	home := f.mustSave("1830 FITZWATER ST", "Home")
+	if home.Alarm != DefaultAlarm || !strings.Contains(feed(home.ID), "TRIGGER:-PT4H") {
+		t.Errorf("new address's alarm = %q, want the default in its feed", home.Alarm)
+	}
+
+	rec := f.do(http.MethodPost, "/api/addresses", "application/json", `{"address": "582 PAOLI AVE", "alarm": "21:30"}`)
+	paoli := decode[savedJSON](t, rec)
+	if paoli.Alarm != "21:30" || !strings.Contains(feed(paoli.ID), "TRIGGER:-PT2H30M") {
+		t.Errorf("alarm saved with the address = %q", paoli.Alarm)
+	}
+
+	// Changing the alarm changes the feed at the same URL.
+	rec = f.patch(home.ID, `{"alarm": "7:00"}`)
+	if got := decode[savedJSON](t, rec); got.Alarm != "07:00" {
+		t.Errorf("alarm after PATCH = %q, want 07:00", got.Alarm)
+	}
+	if !strings.Contains(feed(home.ID), "TRIGGER:-PT17H") {
+		t.Error("feed didn't follow the new alarm")
+	}
+	f.patch(home.ID, `{"alarm": "off"}`)
+	if strings.Contains(feed(home.ID), "VALARM") {
+		t.Error("alarm off still has alerts")
+	}
+	// The URL's alarm still wins.
+	if body := f.get("/a/" + home.ID + "/schedule.ics?alarm=20:00").Body.String(); !strings.Contains(body, "TRIGGER:-PT4H") {
+		t.Error("?alarm= didn't override the saved alarm")
+	}
+	// The default address's feed uses its alarm too.
+	if body := f.get("/schedule.ics").Body.String(); strings.Contains(body, "VALARM") {
+		t.Error("default address's feed ignores its alarm")
+	}
+	// An empty alarm goes back to the default.
+	if got := decode[savedJSON](t, f.patch(home.ID, `{"alarm": ""}`)); got.Alarm != DefaultAlarm {
+		t.Errorf("alarm after clearing = %q, want the default", got.Alarm)
+	}
+	if file := f.savedFile(); file.Addresses[0].Alarm != "" || file.Addresses[1].Alarm != "21:30" {
+		t.Errorf("file = %+v, want the default left out and 21:30 kept", file.Addresses)
+	}
+
+	if rec := f.patch(home.ID, `{"alarm": "8pm"}`); rec.Code != http.StatusBadRequest {
+		t.Errorf("bad alarm = %d, want 400", rec.Code)
+	}
+}
+
 func TestUpdateSaved(t *testing.T) {
 	f := newFixture(t)
 	home := f.mustSave("1830 FITZWATER ST", "Home")
@@ -412,6 +463,7 @@ func TestLoadSaved(t *testing.T) {
 		"not JSON":    "{",
 		"missing ID":  `{"addresses": [{"address": "1830 FITZWATER ST"}]}`,
 		"bad address": fmt.Sprintf(`{"addresses": [{"id": %q, "address": "<b>"}]}`, uuid.NewV4()),
+		"bad alarm":   fmt.Sprintf(`{"addresses": [{"id": %q, "address": "1830 FITZWATER ST", "alarm": "8pm"}]}`, uuid.NewV4()),
 	} {
 		t.Run(name, func(t *testing.T) {
 			if err := New(Config{AddressesFile: write(t, content)}).LoadSaved(); err == nil || !strings.Contains(err.Error(), "addresses.json") {

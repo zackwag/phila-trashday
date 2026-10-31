@@ -31,9 +31,12 @@ const (
 // use the ID, so they keep working when its label or even its address
 // changes, and they don't reveal the address.
 type Saved struct {
-	ID        uuid.UUID `json:"id"`
-	Address   string    `json:"address"`
-	Label     string    `json:"label,omitempty"`
+	ID      uuid.UUID `json:"id"`
+	Address string    `json:"address"`
+	Label   string    `json:"label,omitempty"`
+	// Alarm is the feed's reminder, the evening before a pickup, as HH:MM
+	// or "off". Empty means DefaultAlarm.
+	Alarm     string    `json:"alarm,omitempty"`
 	CreatedAt time.Time `json:"created_at"`
 }
 
@@ -76,6 +79,11 @@ func (s *Service) LoadSaved() error {
 		}
 		if _, err := cleanAddress(a.Address); err != nil {
 			return fmt.Errorf("%s: %w", s.cfg.AddressesFile, err)
+		}
+		if a.Alarm != "" {
+			if _, err := normalizeAlarm(a.Alarm); err != nil {
+				return fmt.Errorf("%s: %w", s.cfg.AddressesFile, err)
+			}
 		}
 	}
 	if !slices.ContainsFunc(f.Addresses, func(a Saved) bool { return a.ID == f.Default }) {
@@ -169,6 +177,7 @@ type savedJSON struct {
 	ID        string    `json:"id"`
 	Address   string    `json:"address"`
 	Label     string    `json:"label"`
+	Alarm     string    `json:"alarm"`
 	Default   bool      `json:"default"`
 	CreatedAt time.Time `json:"created_at"`
 	// Feed is the path of the address's calendar feed on this server.
@@ -183,6 +192,7 @@ func (s *Service) toSavedJSON(a Saved, isDefault bool) savedJSON {
 		ID:        a.ID.String(),
 		Address:   a.Address,
 		Label:     a.Label,
+		Alarm:     alarmSetting(a),
 		Default:   isDefault,
 		CreatedAt: a.CreatedAt,
 		Feed:      "/a/" + a.ID.String() + "/schedule.ics",
@@ -207,6 +217,8 @@ type savedListJSON struct {
 type savedRequest struct {
 	Address *string `json:"address"`
 	Label   *string `json:"label"`
+	// Alarm is HH:MM or "off". An empty string goes back to DefaultAlarm.
+	Alarm   *string `json:"alarm"`
 	Default *bool   `json:"default"`
 }
 
@@ -247,6 +259,14 @@ func (s *Service) readSavedRequest(w http.ResponseWriter, r *http.Request) (save
 			return savedRequest{}, false
 		}
 		body.Label = &label
+	}
+	if body.Alarm != nil && *body.Alarm != "" {
+		alarm, err := normalizeAlarm(*body.Alarm)
+		if err != nil {
+			s.writeJSON(w, http.StatusBadRequest, errorJSON{Error: err.Error()})
+			return savedRequest{}, false
+		}
+		body.Alarm = &alarm
 	}
 	return body, true
 }
@@ -301,6 +321,9 @@ func (s *Service) addSaved(w http.ResponseWriter, r *http.Request) {
 		if body.Label != nil {
 			added.Label = *body.Label
 		}
+		if body.Alarm != nil {
+			added.Alarm = *body.Alarm
+		}
 		if def == uuid.Nil() || (body.Default != nil && *body.Default) {
 			def = added.ID
 		}
@@ -350,6 +373,9 @@ func (s *Service) updateSaved(w http.ResponseWriter, r *http.Request) {
 		saved[i].Address = address
 		if body.Label != nil {
 			saved[i].Label = *body.Label
+		}
+		if body.Alarm != nil {
+			saved[i].Alarm = *body.Alarm
 		}
 		switch {
 		case body.Default == nil:

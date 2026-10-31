@@ -73,9 +73,6 @@ type Config struct {
 	// like iCloud and Skylight can subscribe. Empty means the feeds aren't
 	// public.
 	PublicURL string
-	// Alarm is the feed's alert, relative to the start of the pickup day,
-	// when the feed URL doesn't choose one. Nil means no alert.
-	Alarm *time.Duration
 	// Refresh is how long a lookup is reused, how often the extra holidays
 	// file is re-read, and how often the feed asks subscribers to fetch it
 	// again.
@@ -356,18 +353,41 @@ func (s *Service) holidayWarnings() []string {
 	return nil
 }
 
-// ParseAlarm turns a time the evening before a pickup into an offset from
-// the start of the pickup day, so "20:00" is -4h. "off" means no alarm.
-func ParseAlarm(s string) (*time.Duration, error) {
+// DefaultAlarm is the reminder a feed gets when neither its saved address
+// nor its URL chooses one: 8 PM the evening before.
+const DefaultAlarm = "20:00"
+
+// normalizeAlarm checks a reminder setting, the time the evening before a
+// pickup as HH:MM or "off", and writes it the one way it's stored.
+func normalizeAlarm(s string) (string, error) {
 	if strings.EqualFold(s, "off") {
-		return nil, nil
+		return "off", nil
 	}
 	t, err := time.Parse("15:04", s)
 	if err != nil {
-		return nil, fmt.Errorf("alarm must be HH:MM, like 20:00, or off, not %q", s)
+		return "", fmt.Errorf("alarm must be HH:MM, like 20:00, or off, not %q", s)
 	}
+	return t.Format("15:04"), nil
+}
+
+// parseAlarm turns a reminder setting into an offset from the start of the
+// pickup day, so "20:00" is -4h. "off" means no reminder.
+func parseAlarm(s string) (*time.Duration, error) {
+	s, err := normalizeAlarm(s)
+	if err != nil || s == "off" {
+		return nil, err
+	}
+	t, _ := time.Parse("15:04", s) // normalizeAlarm has checked it
 	offset := time.Duration(t.Hour())*time.Hour + time.Duration(t.Minute())*time.Minute - 24*time.Hour
 	return &offset, nil
+}
+
+// alarmSetting is the reminder a saved address's feed gets.
+func alarmSetting(a Saved) string {
+	if a.Alarm == "" {
+		return DefaultAlarm
+	}
+	return a.Alarm
 }
 
 // Handler serves the schedules (/schedule.json and /schedule.ics, and the
@@ -539,16 +559,23 @@ func (s *Service) serveJSON(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Service) serveICS(w http.ResponseWriter, r *http.Request) {
-	alarm := s.cfg.Alarm
-	if r.URL.Query().Has("alarm") {
-		var err error
-		if alarm, err = ParseAlarm(r.URL.Query().Get("alarm")); err != nil {
-			s.writeJSON(w, http.StatusBadRequest, errorJSON{Error: err.Error()})
-			return
-		}
-	}
 	v, ok := s.lookupRequest(w, r)
 	if !ok {
+		return
+	}
+	// The URL's reminder wins, then the saved address's. Leaving it out of
+	// a saved address's URL means changing it reaches calendars that
+	// already subscribe.
+	setting := DefaultAlarm
+	if v.saved != nil {
+		setting = alarmSetting(*v.saved)
+	}
+	if r.URL.Query().Has("alarm") {
+		setting = r.URL.Query().Get("alarm")
+	}
+	alarm, err := parseAlarm(setting)
+	if err != nil {
+		s.writeJSON(w, http.StatusBadRequest, errorJSON{Error: err.Error()})
 		return
 	}
 
