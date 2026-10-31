@@ -50,6 +50,38 @@ function save(key, value) {
   }
 }
 
+// IS_APPLE picks the copy shortcut to suggest if copying fails.
+const IS_APPLE = /Mac|iPhone|iPad/.test(navigator.platform);
+
+// copyField copies a text field's value and reports whether it worked. The
+// Clipboard API only exists on HTTPS pages, and on the network this page is
+// usually plain HTTP, so it falls back to selecting the text and copying the
+// selection, which browsers still allow there. If that fails too, the text
+// is left selected so a keyboard shortcut copies it.
+async function copyField(field) {
+  if (navigator.clipboard && window.isSecureContext) {
+    try {
+      await navigator.clipboard.writeText(field.value);
+      return true;
+    } catch {
+      // Denied, so try the selection.
+    }
+  }
+  field.focus();
+  field.setSelectionRange(0, field.value.length);
+  let copied = false;
+  try {
+    copied = document.execCommand('copy');
+  } catch {
+    copied = false;
+  }
+  if (copied) {
+    field.setSelectionRange(0, 0);
+    field.blur();
+  }
+  return copied;
+}
+
 // Addresses
 
 const STREET_TYPES = {
@@ -707,13 +739,8 @@ function wireDetails() {
 
   $('copy').addEventListener('click', async () => {
     const button = $('copy');
-    try {
-      await navigator.clipboard.writeText($('feed-url').value);
-      button.textContent = 'Copied';
-    } catch {
-      $('feed-url').select();
-      button.textContent = 'Press Ctrl+C to copy';
-    }
+    const copied = await copyField($('feed-url'));
+    button.textContent = copied ? 'Copied' : `Press ${IS_APPLE ? '⌘C' : 'Ctrl+C'} to copy`;
     setTimeout(() => {
       button.textContent = 'Copy link';
     }, 2000);
