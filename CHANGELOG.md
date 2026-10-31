@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.4.0](https://github.com/zackwag/phila-trashday/compare/v0.3.0...v0.4.0) (2026-10-31)
+
+
+### Features
+
+* save a reminder time with each address ([#17](https://github.com/zackwag/phila-trashday/issues/17)) ([1a56f7a](https://github.com/zackwag/phila-trashday/commit/1a56f7ab87001def00a5cf1c1172f61c3d8ce658))
+
+
+### Bug Fixes
+
+* copy the feed link on plain HTTP ([#18](https://github.com/zackwag/phila-trashday/issues/18)) ([1594abb](https://github.com/zackwag/phila-trashday/commit/1594abba5d24c3bf1ff4bd0cc669d9970c881eb8))
+
 ## [0.3.0](https://github.com/zackwag/phila-trashday/compare/v0.2.0...v0.3.0) (2026-10-30)
 
 
