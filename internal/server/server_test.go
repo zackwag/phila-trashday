@@ -443,6 +443,9 @@ func TestFeedPageContentNegotiation(t *testing.T) {
 	if !strings.Contains(body, "webcal://") {
 		t.Error("page missing webcal subscribe link")
 	}
+	if !strings.Contains(body, "/a/lookup") {
+		t.Error("page missing lookup form")
+	}
 
 	// A calendar client still gets the ICS feed.
 	req = httptest.NewRequest(http.MethodGet, "/a/"+home.ID+"/schedule.ics", nil)
@@ -466,6 +469,89 @@ func TestFeedPageContentNegotiation(t *testing.T) {
 	f.svc.Handler().ServeHTTP(rec, req)
 	if ct := rec.Header().Get("Content-Type"); ct != "text/calendar; charset=utf-8" {
 		t.Errorf("unsaved browser Content-Type = %q, want text/calendar", ct)
+	}
+}
+
+func TestLookup(t *testing.T) {
+	f := newFixture(t)
+
+	// A new address is saved and redirected to its feed page.
+	rec := f.get("/a/lookup?address=1830+FITZWATER+ST")
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("lookup = %d, want 303: %s", rec.Code, rec.Body)
+	}
+	loc := rec.Header().Get("Location")
+	if !strings.HasPrefix(loc, "/a/") || !strings.HasSuffix(loc, "/schedule.ics") {
+		t.Fatalf("Location = %q, want /a/{id}/schedule.ics", loc)
+	}
+
+	// The same address redirects to the same saved ID.
+	rec2 := f.get("/a/lookup?address=1830+Fitzwater+Street")
+	if rec2.Header().Get("Location") != loc {
+		t.Errorf("second lookup Location = %q, want %q (deduplicated)", rec2.Header().Get("Location"), loc)
+	}
+
+	// An unknown address shows an error page with the form.
+	rec = f.get("/a/lookup?address=1+NOWHERE+ST")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("bad address lookup = %d, want 200", rec.Code)
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, "No property found") {
+		t.Error("error page missing message")
+	}
+	if !strings.Contains(body, "1 NOWHERE ST") {
+		t.Error("error page missing prefilled address")
+	}
+
+	// Empty address shows an error.
+	rec = f.get("/a/lookup?address=")
+	if !strings.Contains(rec.Body.String(), "error") {
+		t.Error("empty address didn't show error")
+	}
+}
+
+func TestLookupFetcherFailure(t *testing.T) {
+	f := newFixture(t)
+	f.fetcher.fail(fmt.Errorf("city is down"))
+	rec := f.get("/a/lookup?address=1830+FITZWATER+ST")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("lookup with fetcher failure = %d: %s", rec.Code, rec.Body)
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, "Try again") {
+		t.Errorf("error page missing fetcher failure message, got: %s", body)
+	}
+}
+
+func TestLookupTooManySaved(t *testing.T) {
+	f := newFixture(t)
+	// Fill up to maxSaved with dummy addresses.
+	for i := range maxSaved {
+		addr := fmt.Sprintf("%d FAKE ST", i+1)
+		f.fetcher.mu.Lock()
+		f.fetcher.known[addr] = ais.Property{Address: addr, Days: wedSat}
+		f.fetcher.mu.Unlock()
+		rec := f.get("/a/lookup?address=" + strings.ReplaceAll(addr, " ", "+"))
+		if rec.Code != http.StatusSeeOther {
+			t.Fatalf("saving address %d = %d, want 303", i, rec.Code)
+		}
+	}
+	// The next one should fail.
+	rec := f.get("/a/lookup?address=582+PAOLI+AVE")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("lookup at capacity = %d, want 200", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), "save") {
+		t.Error("error page missing save failure message")
+	}
+}
+
+func TestLookupSavingOff(t *testing.T) {
+	f := newFixture(t, func(c *Config) { c.AddressesFile = "" })
+	rec := f.get("/a/lookup?address=1830+FITZWATER+ST")
+	if rec.Code != http.StatusNotImplemented {
+		t.Errorf("lookup with saving off = %d, want 501", rec.Code)
 	}
 }
 

@@ -15,6 +15,7 @@ import (
 	"log/slog"
 	"maps"
 	"net/http"
+	"slices"
 	"os"
 	"strings"
 	"sync"
@@ -397,6 +398,7 @@ func (s *Service) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /schedule.json", s.serveJSON)
 	mux.HandleFunc("GET /schedule.ics", s.serveICS)
+	mux.HandleFunc("GET /a/lookup", s.serveLookup)
 	mux.HandleFunc("GET /a/{id}/schedule.json", s.serveJSON)
 	mux.HandleFunc("GET /a/{id}/schedule.ics", s.serveICS)
 	mux.HandleFunc("GET /api/addresses", s.listSaved)
@@ -558,6 +560,79 @@ func (s *Service) serveJSON(w http.ResponseWriter, r *http.Request) {
 	s.writeJSON(w, http.StatusOK, out)
 }
 
+// serveLookup resolves an address, saves it if it isn't already, and
+// redirects to its feed page. This lets someone on the preview page look
+// up their own address and get their own subscribable link without
+// exposing the full app.
+func (s *Service) serveLookup(w http.ResponseWriter, r *http.Request) {
+	if s.cfg.AddressesFile == "" {
+		s.writeJSON(w, http.StatusNotImplemented, errorJSON{Error: "saving addresses is turned off"})
+		return
+	}
+	query := r.URL.Query().Get("address")
+	address, err := cleanAddress(query)
+	if err != nil {
+		s.serveLookupError(w, r, err.Error())
+		return
+	}
+	res, rErr := s.resolve(r.Context(), address)
+	if rErr != nil {
+		msg := fmt.Sprintf("No property found at %s. Write it the way the city does, like 1830 FITZWATER ST.", address)
+		if !errors.Is(rErr, ais.ErrNotFound) {
+			msg = "The city's address lookup didn't answer. Try again in a few minutes."
+		}
+		s.serveLookupError(w, r, msg)
+		return
+	}
+
+	// Save the address, or find the existing one.
+	var id uuid.UUID
+	existing, _, ok := s.findSaved(func(a Saved) bool { return a.Address == res.property.Address })
+	if ok {
+		id = existing.ID
+	} else {
+		var added Saved
+		err := s.change(func(saved []Saved, def uuid.UUID) ([]Saved, uuid.UUID, error) {
+			// Re-check under the lock.
+			if i := slices.IndexFunc(saved, func(a Saved) bool { return a.Address == res.property.Address }); i >= 0 {
+				id = saved[i].ID
+				return nil, def, errAlreadySaved
+			}
+			if len(saved) >= maxSaved {
+				return nil, def, errTooManySaved
+			}
+			added = Saved{ID: uuid.NewV4(), Address: res.property.Address, CreatedAt: s.cfg.Now().UTC()}
+			if def == uuid.Nil() {
+				def = added.ID
+			}
+			return append(saved, added), def, nil
+		})
+		if errors.Is(err, errAlreadySaved) {
+			// id was set inside the lock.
+		} else if err != nil {
+			s.serveLookupError(w, r, "Couldn't save that address. Try again.")
+			return
+		} else {
+			id = added.ID
+		}
+	}
+
+	http.Redirect(w, r, "/a/"+id.String()+"/schedule.ics", http.StatusSeeOther)
+}
+
+// serveLookupError renders the preview page's search form with an error
+// message, so the user can try again without losing context.
+func (s *Service) serveLookupError(w http.ResponseWriter, r *http.Request, msg string) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'none'; base-uri 'none'")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("Referrer-Policy", "no-referrer")
+	w.WriteHeader(http.StatusOK)
+	var b strings.Builder
+	writeLookupPage(&b, r.URL.Query().Get("address"), msg)
+	_, _ = fmt.Fprint(w, b.String())
+}
+
 // wantsHTML reports whether the client prefers HTML over a calendar feed.
 // Only browsers send Accept: text/html; calendar clients ask for
 // text/calendar or */*. Defaulting to the feed keeps Skylight and every
@@ -602,33 +677,8 @@ func (s *Service) serveFeedPage(w http.ResponseWriter, r *http.Request, v view) 
 	w.Header().Set("Referrer-Policy", "no-referrer")
 
 	var b strings.Builder
-	b.WriteString(`<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>`)
-	htmlEscape(&b, label)
-	b.WriteString(` — Trash night</title>
-<style>
-*{box-sizing:border-box;margin:0}
-body{font:400 1.125rem/1.55 system-ui,sans-serif;color:#1e2328;background:#eef0f1;padding:2rem clamp(1.25rem,5vw,2.5rem)}
-@media(prefers-color-scheme:dark){body{color:#e6eaee;background:#161b20}a{color:#6c9ce6}.card{background:#1f262d;border-color:#333c45}.pickup{border-color:#333c45}}
-.card{max-width:36rem;background:#fff;border:1px solid #d5dade;border-radius:0.625rem;padding:1.5rem 1.75rem}
-h1{font-size:1.5rem;font-weight:800;letter-spacing:-0.01em}
-.addr{color:#545e67;margin-top:0.25rem}
-.pickups{list-style:none;padding:0;margin:1.25rem 0 0}
-.pickup{display:flex;justify-content:space-between;align-items:center;padding:0.6rem 0;border-top:1px solid #d5dade}
-.pickup-when{font-weight:700}
-.pickup-what{color:#545e67}
-.moved{font-size:0.875rem;color:#545e67}
-.sub{display:inline-block;margin-top:1.5rem;padding:0.75rem 1.5rem;font:inherit;font-weight:700;color:#eef0f1;background:#1e2328;border:none;border-radius:0.625rem;text-decoration:none;cursor:pointer}
-.sub:hover{background:#1f5fbf}
-@media(prefers-color-scheme:dark){.sub{color:#161b20;background:#e6eaee}.sub:hover{background:#6c9ce6}}
-</style>
-</head>
-<body>
-<div class="card">
+	feedPageHead(&b, label+" — Trash night")
+	b.WriteString(`<div class="card">
 <h1>`)
 	htmlEscape(&b, label)
 	b.WriteString(`</h1>
@@ -656,10 +706,80 @@ h1{font-size:1.5rem;font-weight:800;letter-spacing:-0.01em}
 	htmlEscape(&b, subURL.String())
 	b.WriteString(`">Subscribe in your calendar</a>
 </div>
-</body>
+`)
+	writeLookupForm(&b, "", "")
+	b.WriteString(`</body>
 </html>
 `)
 	_, _ = fmt.Fprint(w, b.String())
+}
+
+// feedPageHead writes the shared <head> and opening <body> for the
+// preview and lookup pages.
+func feedPageHead(b *strings.Builder, title string) {
+	b.WriteString(`<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>`)
+	htmlEscape(b, title)
+	b.WriteString(`</title>
+<style>
+*{box-sizing:border-box;margin:0}
+body{font:400 1.125rem/1.55 system-ui,sans-serif;color:#1e2328;background:#eef0f1;padding:2rem clamp(1.25rem,5vw,2.5rem)}
+@media(prefers-color-scheme:dark){body{color:#e6eaee;background:#161b20}a{color:#6c9ce6}.card{background:#1f262d;border-color:#333c45}.pickup{border-color:#333c45}input{color:#e6eaee;background:#1f262d;border-color:#333c45}}
+.card{max-width:36rem;background:#fff;border:1px solid #d5dade;border-radius:0.625rem;padding:1.5rem 1.75rem;margin-bottom:1.25rem}
+h1{font-size:1.5rem;font-weight:800;letter-spacing:-0.01em}
+h2{font-size:1.125rem;font-weight:700;margin-bottom:0.5rem}
+.addr{color:#545e67;margin-top:0.25rem}
+.pickups{list-style:none;padding:0;margin:1.25rem 0 0}
+.pickup{display:flex;justify-content:space-between;align-items:center;padding:0.6rem 0;border-top:1px solid #d5dade}
+.pickup-when{font-weight:700}
+.pickup-what{color:#545e67}
+.moved{font-size:0.875rem;color:#545e67}
+.sub,.btn{display:inline-block;margin-top:1rem;padding:0.65rem 1.25rem;font:inherit;font-weight:700;color:#eef0f1;background:#1e2328;border:2px solid #1e2328;border-radius:0.625rem;text-decoration:none;cursor:pointer}
+.sub:hover,.btn:hover{background:#1f5fbf;border-color:#1f5fbf}
+@media(prefers-color-scheme:dark){.sub,.btn{color:#161b20;background:#e6eaee;border-color:#e6eaee}.sub:hover,.btn:hover{background:#6c9ce6;border-color:#6c9ce6}}
+.lookup{display:flex;gap:0.5rem;flex-wrap:wrap}
+.lookup input{flex:1 1 14rem;font:inherit;padding:0.65rem 0.85rem;border:2px solid #d5dade;border-radius:0.625rem;background:#fff}
+.error{color:#b42318;font-weight:600;margin-bottom:0.75rem}
+@media(prefers-color-scheme:dark){.error{color:#f97066}}
+</style>
+</head>
+<body>
+`)
+}
+
+// writeLookupForm writes the "Look up your address" form, with an
+// optional prefilled value and error message.
+func writeLookupForm(b *strings.Builder, value, errMsg string) {
+	b.WriteString(`<div class="card">
+<h2>Look up your address</h2>
+`)
+	if errMsg != "" {
+		b.WriteString(`<p class="error">`)
+		htmlEscape(b, errMsg)
+		b.WriteString(`</p>
+`)
+	}
+	b.WriteString(`<form class="lookup" action="/a/lookup" method="get">
+<input name="address" type="text" placeholder="1830 Fitzwater St" required value="`)
+	htmlEscape(b, value)
+	b.WriteString(`">
+<button class="btn" type="submit">Show schedule</button>
+</form>
+</div>
+`)
+}
+
+// writeLookupPage writes a standalone page with just the lookup form.
+func writeLookupPage(b *strings.Builder, value, errMsg string) {
+	feedPageHead(b, "Trash night")
+	writeLookupForm(b, value, errMsg)
+	b.WriteString(`</body>
+</html>
+`)
 }
 
 // htmlEscape writes s to b with HTML-unsafe characters escaped.
