@@ -443,7 +443,7 @@ func TestFeedPageContentNegotiation(t *testing.T) {
 	if !strings.Contains(body, "webcal://") {
 		t.Error("page missing webcal subscribe link")
 	}
-	if !strings.Contains(body, "/a/lookup") {
+	if !strings.Contains(body, "../lookup") {
 		t.Error("page missing lookup form")
 	}
 	if !strings.Contains(body, "Remind me") {
@@ -501,8 +501,8 @@ func TestLookup(t *testing.T) {
 		t.Fatalf("lookup = %d, want 303: %s", rec.Code, rec.Body)
 	}
 	loc := rec.Header().Get("Location")
-	if !strings.HasPrefix(loc, "/a/") || !strings.HasSuffix(loc, "/schedule.ics") {
-		t.Fatalf("Location = %q, want /a/{id}/schedule.ics", loc)
+	if !strings.HasSuffix(loc, "/schedule.ics") {
+		t.Fatalf("Location = %q, want {id}/schedule.ics", loc)
 	}
 
 	// The same address redirects to the same saved ID.

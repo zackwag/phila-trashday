@@ -620,7 +620,8 @@ func (s *Service) serveLookup(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.cfg.Logger.Info("lookup", "address", res.property.Address, "saved_id", id.String(), "new", !ok)
-	http.Redirect(w, r, "/a/"+id.String()+"/schedule.ics", http.StatusSeeOther)
+	// Relative so it works behind a reverse proxy that strips a path prefix.
+	http.Redirect(w, r, id.String()+"/schedule.ics", http.StatusSeeOther)
 }
 
 // serveLookupError renders the preview page's search form with an error
@@ -758,7 +759,7 @@ document.getElementById('alarm').addEventListener('change',function(){
 </script>
 </div>
 `)
-	writeLookupForm(&b, "", "")
+	writeLookupForm(&b, "../lookup", "", "")
 	b.WriteString(`</body>
 </html>
 `)
@@ -812,7 +813,8 @@ h2{font-size:1.125rem;font-weight:700;margin-bottom:0.5rem}
 
 // writeLookupForm writes the "Look up your address" form with Carto
 // autocomplete, and an optional prefilled value and error message.
-func writeLookupForm(b *strings.Builder, value, errMsg string) {
+// action is the form's action URL, relative to the page serving it.
+func writeLookupForm(b *strings.Builder, action, value, errMsg string) {
 	b.WriteString(`<div class="card">
 <h2>Look up your address</h2>
 `)
@@ -822,7 +824,9 @@ func writeLookupForm(b *strings.Builder, value, errMsg string) {
 		b.WriteString(`</p>
 `)
 	}
-	b.WriteString(`<form class="lookup" id="lookup" action="/a/lookup" method="get" autocomplete="off">
+	b.WriteString(`<form class="lookup" id="lookup" action="`)
+	htmlEscape(b, action)
+	b.WriteString(`" method="get" autocomplete="off">
 <div class="combo">
 <input id="addr" name="address" type="text" inputmode="search" spellcheck="false"
   placeholder="1830 Fitzwater St" role="combobox" aria-autocomplete="list"
@@ -916,7 +920,7 @@ input.addEventListener('blur',close);
 // writeLookupPage writes a standalone page with just the lookup form.
 func writeLookupPage(b *strings.Builder, value, errMsg string) {
 	feedPageHead(b, "Trash night")
-	writeLookupForm(b, value, errMsg)
+	writeLookupForm(b, "lookup", value, errMsg)
 	b.WriteString(`</body>
 </html>
 `)
