@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.3](https://github.com/zackwag/phila-trashday/compare/v0.6.2...v0.6.3) (2026-11-04)
+
+
+### Bug Fixes
+
+* align lookup form button with input ([#28](https://github.com/zackwag/phila-trashday/issues/28)) ([f2a09b3](https://github.com/zackwag/phila-trashday/commit/f2a09b3c4489569b5d3a4f16b1652af3ddcfe609))
+
 ## [0.6.2](https://github.com/zackwag/phila-trashday/compare/v0.6.1...v0.6.2) (2026-11-04)
 
 
