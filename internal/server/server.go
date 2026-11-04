@@ -571,6 +571,10 @@ func (s *Service) serveLookup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	query := r.URL.Query().Get("address")
+	if strings.TrimSpace(query) == "" {
+		s.serveLookupError(w, r, "")
+		return
+	}
 	address, err := cleanAddress(query)
 	if err != nil {
 		s.serveLookupError(w, r, err.Error())
