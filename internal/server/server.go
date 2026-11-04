@@ -558,9 +558,139 @@ func (s *Service) serveJSON(w http.ResponseWriter, r *http.Request) {
 	s.writeJSON(w, http.StatusOK, out)
 }
 
+// wantsHTML reports whether the client prefers HTML over a calendar feed.
+// Only browsers send Accept: text/html; calendar clients ask for
+// text/calendar or */*. Defaulting to the feed keeps Skylight and every
+// other subscriber working without knowing their exact Accept header.
+func wantsHTML(r *http.Request) bool {
+	accept := r.Header.Get("Accept")
+	return strings.Contains(accept, "text/html") && !strings.Contains(accept, "text/calendar")
+}
+
+// feedPagePickups is how many upcoming collections the feed preview page
+// shows.
+const feedPagePickups = 6
+
+// serveFeedPage renders a read-only HTML preview of a saved address's
+// schedule, with a webcal:// subscribe button.
+func (s *Service) serveFeedPage(w http.ResponseWriter, r *http.Request, v view) {
+	// Build the webcal:// subscribe URL from the request.
+	subURL := *r.URL
+	subURL.Scheme = "webcal"
+	subURL.Host = r.Host
+
+	today := schedule.Day(s.cfg.Now().In(s.cfg.Location))
+	upcoming := v.collections
+	// Trim past pickups.
+	cut := 0
+	for cut < len(upcoming) && upcoming[cut].Date.Before(today) {
+		cut++
+	}
+	upcoming = upcoming[cut:]
+	if len(upcoming) > feedPagePickups {
+		upcoming = upcoming[:feedPagePickups]
+	}
+
+	label := v.property.Address
+	if v.saved != nil && v.saved.Label != "" {
+		label = v.saved.Label
+	}
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'none'; base-uri 'none'")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("Referrer-Policy", "no-referrer")
+
+	var b strings.Builder
+	b.WriteString(`<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>`)
+	htmlEscape(&b, label)
+	b.WriteString(` — Trash night</title>
+<style>
+*{box-sizing:border-box;margin:0}
+body{font:400 1.125rem/1.55 system-ui,sans-serif;color:#1e2328;background:#eef0f1;padding:2rem clamp(1.25rem,5vw,2.5rem)}
+@media(prefers-color-scheme:dark){body{color:#e6eaee;background:#161b20}a{color:#6c9ce6}.card{background:#1f262d;border-color:#333c45}.pickup{border-color:#333c45}}
+.card{max-width:36rem;background:#fff;border:1px solid #d5dade;border-radius:0.625rem;padding:1.5rem 1.75rem}
+h1{font-size:1.5rem;font-weight:800;letter-spacing:-0.01em}
+.addr{color:#545e67;margin-top:0.25rem}
+.pickups{list-style:none;padding:0;margin:1.25rem 0 0}
+.pickup{display:flex;justify-content:space-between;align-items:center;padding:0.6rem 0;border-top:1px solid #d5dade}
+.pickup-when{font-weight:700}
+.pickup-what{color:#545e67}
+.moved{font-size:0.875rem;color:#545e67}
+.sub{display:inline-block;margin-top:1.5rem;padding:0.75rem 1.5rem;font:inherit;font-weight:700;color:#eef0f1;background:#1e2328;border:none;border-radius:0.625rem;text-decoration:none;cursor:pointer}
+.sub:hover{background:#1f5fbf}
+@media(prefers-color-scheme:dark){.sub{color:#161b20;background:#e6eaee}.sub:hover{background:#6c9ce6}}
+</style>
+</head>
+<body>
+<div class="card">
+<h1>`)
+	htmlEscape(&b, label)
+	b.WriteString(`</h1>
+<p class="addr">`)
+	htmlEscape(&b, v.property.Address)
+	b.WriteString(`</p>
+<ul class="pickups">
+`)
+	for _, c := range upcoming {
+		b.WriteString(`<li class="pickup"><span class="pickup-when">`)
+		htmlEscape(&b, c.Date.Format("Mon, Jan 2"))
+		b.WriteString(`</span><span class="pickup-what">`)
+		htmlEscape(&b, c.Summary())
+		b.WriteString(`</span></li>
+`)
+		if c.Moved() {
+			b.WriteString(`<li class="moved">Moved from `)
+			htmlEscape(&b, c.Scheduled.Format("Mon, Jan 2"))
+			b.WriteString(` for a holiday</li>
+`)
+		}
+	}
+	b.WriteString(`</ul>
+<a class="sub" href="`)
+	htmlEscape(&b, subURL.String())
+	b.WriteString(`">Subscribe in your calendar</a>
+</div>
+</body>
+</html>
+`)
+	_, _ = fmt.Fprint(w, b.String())
+}
+
+// htmlEscape writes s to b with HTML-unsafe characters escaped.
+func htmlEscape(b *strings.Builder, s string) {
+	for _, r := range s {
+		switch r {
+		case '&':
+			b.WriteString("&amp;")
+		case '<':
+			b.WriteString("&lt;")
+		case '>':
+			b.WriteString("&gt;")
+		case '"':
+			b.WriteString("&quot;")
+		case '\'':
+			b.WriteString("&#39;")
+		default:
+			b.WriteRune(r)
+		}
+	}
+}
+
 func (s *Service) serveICS(w http.ResponseWriter, r *http.Request) {
 	v, ok := s.lookupRequest(w, r)
 	if !ok {
+		return
+	}
+	// A saved address's .ics URL doubles as a shareable link: browsers get
+	// an HTML preview with a subscribe button, calendar clients get the feed.
+	if r.PathValue("id") != "" && wantsHTML(r) {
+		s.serveFeedPage(w, r, v)
 		return
 	}
 	// The URL's reminder wins, then the saved address's. Leaving it out of

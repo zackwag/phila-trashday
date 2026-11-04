@@ -418,6 +418,57 @@ func TestICSAlarmParameter(t *testing.T) {
 	}
 }
 
+func TestFeedPageContentNegotiation(t *testing.T) {
+	f := newFixture(t)
+	home := f.mustSave("1830 FITZWATER ST", "Home")
+
+	// A browser gets HTML.
+	req := httptest.NewRequest(http.MethodGet, "/a/"+home.ID+"/schedule.ics", nil)
+	req.Header.Set("Accept", "text/html,application/xhtml+xml,*/*;q=0.8")
+	rec := httptest.NewRecorder()
+	f.svc.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("browser request = %d: %s", rec.Code, rec.Body)
+	}
+	if ct := rec.Header().Get("Content-Type"); !strings.HasPrefix(ct, "text/html") {
+		t.Errorf("Content-Type = %q, want text/html", ct)
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, "Home") {
+		t.Error("page missing label")
+	}
+	if !strings.Contains(body, "1830 FITZWATER ST") {
+		t.Error("page missing address")
+	}
+	if !strings.Contains(body, "webcal://") {
+		t.Error("page missing webcal subscribe link")
+	}
+
+	// A calendar client still gets the ICS feed.
+	req = httptest.NewRequest(http.MethodGet, "/a/"+home.ID+"/schedule.ics", nil)
+	req.Header.Set("Accept", "text/calendar")
+	rec = httptest.NewRecorder()
+	f.svc.Handler().ServeHTTP(rec, req)
+	if ct := rec.Header().Get("Content-Type"); ct != "text/calendar; charset=utf-8" {
+		t.Errorf("calendar client Content-Type = %q, want text/calendar", ct)
+	}
+
+	// No Accept header still gets ICS (the safe default).
+	rec = f.get("/a/" + home.ID + "/schedule.ics")
+	if ct := rec.Header().Get("Content-Type"); ct != "text/calendar; charset=utf-8" {
+		t.Errorf("no-Accept Content-Type = %q, want text/calendar", ct)
+	}
+
+	// An unsaved address's .ics always gets ICS, even from a browser.
+	req = httptest.NewRequest(http.MethodGet, "/schedule.ics?address=1830+FITZWATER+ST", nil)
+	req.Header.Set("Accept", "text/html,*/*")
+	rec = httptest.NewRecorder()
+	f.svc.Handler().ServeHTTP(rec, req)
+	if ct := rec.Header().Get("Content-Type"); ct != "text/calendar; charset=utf-8" {
+		t.Errorf("unsaved browser Content-Type = %q, want text/calendar", ct)
+	}
+}
+
 func TestHealth(t *testing.T) {
 	f := newFixture(t)
 	if rec := f.get("/healthz"); rec.Code != http.StatusOK || decode[healthJSON](t, rec).Status != "ok" {
@@ -565,6 +616,15 @@ func TestNewDefaults(t *testing.T) {
 	svc.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/schedule.json?address=582+PAOLI+AVE", nil))
 	if rec.Code != http.StatusOK {
 		t.Errorf("GET /schedule.json = %d, want 200", rec.Code)
+	}
+}
+
+func TestHTMLEscape(t *testing.T) {
+	var b strings.Builder
+	htmlEscape(&b, `<b>"it's" an & test</b>`)
+	want := "&lt;b&gt;&quot;it&#39;s&quot; an &amp; test&lt;/b&gt;"
+	if got := b.String(); got != want {
+		t.Errorf("htmlEscape = %q, want %q", got, want)
 	}
 }
 
