@@ -15,8 +15,8 @@ import (
 	"log/slog"
 	"maps"
 	"net/http"
-	"slices"
 	"os"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -608,12 +608,13 @@ func (s *Service) serveLookup(w http.ResponseWriter, r *http.Request) {
 			}
 			return append(saved, added), def, nil
 		})
-		if errors.Is(err, errAlreadySaved) {
+		switch {
+		case errors.Is(err, errAlreadySaved):
 			// id was set inside the lock.
-		} else if err != nil {
+		case err != nil:
 			s.serveLookupError(w, r, "Couldn't save that address. Try again.")
 			return
-		} else {
+		default:
 			id = added.ID
 		}
 	}
