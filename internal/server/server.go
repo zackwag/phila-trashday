@@ -805,7 +805,7 @@ h2{font-size:1.125rem;font-weight:700;margin-bottom:0.5rem}
 .sub,.btn{display:inline-block;margin-top:1rem;padding:0.65rem 1.25rem;font:inherit;font-weight:700;color:#eef0f1;background:#1e2328;border:2px solid #1e2328;border-radius:0.625rem;text-decoration:none;cursor:pointer}
 .sub:hover,.btn:hover{background:#1f5fbf;border-color:#1f5fbf}
 @media(prefers-color-scheme:dark){.sub,.btn{color:#161b20;background:#e6eaee;border-color:#e6eaee}.sub:hover,.btn:hover{background:#6c9ce6;border-color:#6c9ce6}.field select{color:#e6eaee;background:#1f262d;border-color:#333c45}}
-.lookup{display:flex;gap:0.5rem;flex-wrap:wrap}
+.lookup{display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap}
 .combo{position:relative;flex:1 1 14rem}
 .combo input{width:100%;font:inherit;padding:0.65rem 0.85rem;border:2px solid #d5dade;border-radius:0.625rem;background:#fff}
 .combo input:focus{outline:none;border-color:#1f5fbf}
