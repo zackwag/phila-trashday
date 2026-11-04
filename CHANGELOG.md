@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.0](https://github.com/zackwag/phila-trashday/compare/v0.5.0...v0.6.0) (2026-11-04)
+
+
+### Features
+
+* add address lookup to the feed preview page ([#22](https://github.com/zackwag/phila-trashday/issues/22)) ([3137174](https://github.com/zackwag/phila-trashday/commit/3137174a509ca4b9ae1ab9df0f4b14290d410bff))
+
 ## [0.5.0](https://github.com/zackwag/phila-trashday/compare/v0.4.0...v0.5.0) (2026-11-04)
 
 
