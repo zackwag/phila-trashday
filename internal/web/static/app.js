@@ -444,18 +444,15 @@ function showAlarm(alarm) {
   picker.value = alarm;
 }
 
-// feedNote says where the feed link works and how to keep its reminders.
+// feedNote says where the feed link works.
 function feedNote(isPublic, isSaved) {
-  const follows = isSaved ? ' Changing the reminder updates calendars that already subscribe.' : '';
   if (isPublic) {
-    return 'This link works from anywhere, so iCloud and Skylight can subscribe to it. '
-      + 'On a Mac, uncheck Remove Alerts when Calendar asks, or the reminders are dropped.' + follows;
+    return 'This link works from anywhere. On a Mac, uncheck Remove Alerts when Calendar asks.';
   }
   if (state.saved.public_url) {
-    return 'This link only works on your network. Save this address to get one iCloud and Skylight can reach.';
+    return 'This link only works on your network. Save it to get a public one.';
   }
-  return 'On a Mac, choose On My Mac when Calendar asks where to add it. '
-    + 'Calendars kept in iCloud are refreshed by Apple\'s servers, which can\'t reach this one.' + follows;
+  return 'This link only works on your network.';
 }
 
 function renderFeed(data) {
@@ -496,13 +493,14 @@ function renderSave(data) {
   resetRemove();
   $('save-new').hidden = Boolean(data.saved);
   $('save-existing').hidden = !data.saved;
+  $('save-status').hidden = !data.saved;
   if (!data.saved) {
     return;
   }
-  const name = data.saved.label ? `as ${data.saved.label}` : 'without a label';
+  const name = data.saved.label || displayAddress(data.address);
   $('save-status').textContent = data.saved.default
-    ? `Saved ${name}. It's the default, so every device on your network opens to it.`
-    : `Saved ${name}.`;
+    ? `${name} is the default address.`
+    : `Saved as ${name}.`;
   $('make-default').hidden = data.saved.default;
 }
 
@@ -540,6 +538,7 @@ function renderSavedList(list, current) {
 function renderSaved() {
   const current = state.data && state.data.saved ? state.data.saved.id : '';
   const any = state.saved.addresses.length > 0;
+  $('manage').hidden = !state.saved.saving;
   $('saved-block').hidden = !any;
   $('picks').hidden = !any;
   renderSavedList($('saved-list'), current);
@@ -758,9 +757,14 @@ function wireDetails() {
     renderUpcoming(state.data);
   });
 
-  $('alarm').addEventListener('change', () => {
+  $('alarm').addEventListener('change', async () => {
     if (state.data.saved) {
-      changeSaved('PATCH', `/api/addresses/${state.data.saved.id}`, { alarm: $('alarm').value });
+      await changeSaved('PATCH', `/api/addresses/${state.data.saved.id}`, { alarm: $('alarm').value });
+      // changeSaved re-renders, so flash after it settles.
+      const note = $('feed-note');
+      const restored = note.textContent;
+      note.textContent = 'Reminder saved.';
+      setTimeout(() => { note.textContent = restored; }, 1500);
       return;
     }
     save(ALARM_KEY, $('alarm').value);
