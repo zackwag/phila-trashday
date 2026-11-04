@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.0](https://github.com/zackwag/phila-trashday/compare/v0.4.0...v0.5.0) (2026-11-04)
+
+
+### Features
+
+* serve an HTML preview when a browser opens a saved feed link ([#20](https://github.com/zackwag/phila-trashday/issues/20)) ([ddd069f](https://github.com/zackwag/phila-trashday/commit/ddd069f7fb632b981b050260f7519026bee92998))
+
 ## [0.4.0](https://github.com/zackwag/phila-trashday/compare/v0.3.0...v0.4.0) (2026-10-31)
 
 
