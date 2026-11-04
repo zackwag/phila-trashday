@@ -443,7 +443,7 @@ func TestFeedPageContentNegotiation(t *testing.T) {
 	if !strings.Contains(body, "webcal://") {
 		t.Error("page missing webcal subscribe link")
 	}
-	if !strings.Contains(body, "/a/lookup") {
+	if !strings.Contains(body, "../lookup") {
 		t.Error("page missing lookup form")
 	}
 	if !strings.Contains(body, "Remind me") {
@@ -501,8 +501,8 @@ func TestLookup(t *testing.T) {
 		t.Fatalf("lookup = %d, want 303: %s", rec.Code, rec.Body)
 	}
 	loc := rec.Header().Get("Location")
-	if !strings.HasPrefix(loc, "/a/") || !strings.HasSuffix(loc, "/schedule.ics") {
-		t.Fatalf("Location = %q, want /a/{id}/schedule.ics", loc)
+	if !strings.HasSuffix(loc, "/schedule.ics") {
+		t.Fatalf("Location = %q, want {id}/schedule.ics", loc)
 	}
 
 	// The same address redirects to the same saved ID.
@@ -524,10 +524,23 @@ func TestLookup(t *testing.T) {
 		t.Error("error page missing prefilled address")
 	}
 
-	// Empty address shows an error.
+	// Empty address shows the form without an error.
 	rec = f.get("/a/lookup?address=")
-	if !strings.Contains(rec.Body.String(), "error") {
-		t.Error("empty address didn't show error")
+	body = rec.Body.String()
+	if strings.Contains(body, `class="error"`) {
+		t.Error("empty address showed an error, want just the form")
+	}
+	if !strings.Contains(body, "Look up your address") {
+		t.Error("empty address missing form")
+	}
+
+	// Bare /a/lookup with no query param shows the form.
+	rec = f.get("/a/lookup")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("bare lookup = %d, want 200", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), "Look up your address") {
+		t.Error("bare lookup missing form")
 	}
 }
 
