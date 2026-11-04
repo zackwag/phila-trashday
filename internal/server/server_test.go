@@ -544,6 +544,18 @@ func TestLookup(t *testing.T) {
 	}
 }
 
+func TestLookupPublicURL(t *testing.T) {
+	f := newFixture(t, func(c *Config) { c.PublicURL = "https://example.com/trashday" })
+	rec := f.get("/a/lookup?address=1830+FITZWATER+ST")
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("lookup = %d, want 303", rec.Code)
+	}
+	loc := rec.Header().Get("Location")
+	if !strings.HasPrefix(loc, "https://example.com/trashday/a/") || !strings.HasSuffix(loc, "/schedule.ics") {
+		t.Fatalf("Location = %q, want https://example.com/trashday/a/{id}/schedule.ics", loc)
+	}
+}
+
 func TestLookupFetcherFailure(t *testing.T) {
 	f := newFixture(t)
 	f.fetcher.fail(fmt.Errorf("city is down"))

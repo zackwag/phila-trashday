@@ -624,8 +624,13 @@ func (s *Service) serveLookup(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.cfg.Logger.Info("lookup", "address", res.property.Address, "saved_id", id.String(), "new", !ok)
-	// Relative so it works behind a reverse proxy that strips a path prefix.
-	http.Redirect(w, r, id.String()+"/schedule.ics", http.StatusSeeOther)
+	// Use the public URL when set, since a path-stripping reverse proxy
+	// makes Go's relative redirect resolve to the wrong absolute path.
+	target := "/a/" + id.String() + "/schedule.ics"
+	if s.cfg.PublicURL != "" {
+		target = s.cfg.PublicURL + target
+	}
+	http.Redirect(w, r, target, http.StatusSeeOther)
 }
 
 // serveLookupError renders the preview page's search form with an error
