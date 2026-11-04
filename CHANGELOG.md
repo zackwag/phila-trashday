@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.2](https://github.com/zackwag/phila-trashday/compare/v0.6.1...v0.6.2) (2026-11-04)
+
+
+### Bug Fixes
+
+* use PublicURL for lookup redirect ([#26](https://github.com/zackwag/phila-trashday/issues/26)) ([2164f7e](https://github.com/zackwag/phila-trashday/commit/2164f7e43530ae805ee1bee60faf318c4f5748d4))
+
 ## [0.6.1](https://github.com/zackwag/phila-trashday/compare/v0.6.0...v0.6.1) (2026-11-04)
 
 
