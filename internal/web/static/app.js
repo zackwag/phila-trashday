@@ -478,6 +478,10 @@ function renderFeed(data) {
   $('feed-url').value = link;
   $('subscribe').href = link.replace(/^https?:/, 'webcal:');
   $('json-link').href = feedURL(data, 'schedule.json').toString();
+  $('share').hidden = !publicFeed;
+  if (publicFeed) {
+    $('share').dataset.url = publicFeed;
+  }
   $('feed-note').textContent = feedNote(Boolean(publicFeed), Boolean(saved));
   renderSave(data);
 }
@@ -774,6 +778,25 @@ function wireDetails() {
     setTimeout(() => {
       button.textContent = 'Copy link';
     }, 2000);
+  });
+
+  $('share').addEventListener('click', async () => {
+    const url = $('share').dataset.url;
+    if (navigator.share) {
+      try {
+        await navigator.share({ url });
+        return;
+      } catch {
+        // Cancelled or unsupported; fall through to copy.
+      }
+    }
+    try {
+      await navigator.clipboard.writeText(url);
+      $('share').textContent = 'Copied';
+    } catch {
+      $('share').textContent = 'Copy failed';
+    }
+    setTimeout(() => { $('share').textContent = 'Share'; }, 2000);
   });
 
   $('save-new').addEventListener('submit', (e) => {
