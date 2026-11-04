@@ -624,7 +624,7 @@ func (s *Service) serveLookup(w http.ResponseWriter, r *http.Request) {
 // message, so the user can try again without losing context.
 func (s *Service) serveLookupError(w http.ResponseWriter, r *http.Request, msg string) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.Header().Set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'none'; base-uri 'none'")
+	w.Header().Set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src https://phl.carto.com; frame-ancestors 'none'; base-uri 'none'")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("Referrer-Policy", "no-referrer")
 	w.WriteHeader(http.StatusOK)
@@ -696,7 +696,7 @@ func (s *Service) serveFeedPage(w http.ResponseWriter, r *http.Request, v view) 
 	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.Header().Set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; frame-ancestors 'none'; base-uri 'none'")
+	w.Header().Set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src https://phl.carto.com; frame-ancestors 'none'; base-uri 'none'")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("Referrer-Policy", "no-referrer")
 
@@ -793,17 +793,22 @@ h2{font-size:1.125rem;font-weight:700;margin-bottom:0.5rem}
 .sub:hover,.btn:hover{background:#1f5fbf;border-color:#1f5fbf}
 @media(prefers-color-scheme:dark){.sub,.btn{color:#161b20;background:#e6eaee;border-color:#e6eaee}.sub:hover,.btn:hover{background:#6c9ce6;border-color:#6c9ce6}.field select{color:#e6eaee;background:#1f262d;border-color:#333c45}}
 .lookup{display:flex;gap:0.5rem;flex-wrap:wrap}
-.lookup input{flex:1 1 14rem;font:inherit;padding:0.65rem 0.85rem;border:2px solid #d5dade;border-radius:0.625rem;background:#fff}
+.combo{position:relative;flex:1 1 14rem}
+.combo input{width:100%;font:inherit;padding:0.65rem 0.85rem;border:2px solid #d5dade;border-radius:0.625rem;background:#fff}
+.combo input:focus{outline:none;border-color:#1f5fbf}
+.suggestions{position:absolute;z-index:2;inset:calc(100% + 0.375rem) 0 auto;margin:0;padding:0.375rem;list-style:none;background:#fff;border:1px solid #d5dade;border-radius:0.625rem;box-shadow:0 12px 24px -12px rgb(14 26 46/0.35)}
+.suggestions li{padding:0.55rem 0.75rem;border-radius:0.375rem;cursor:pointer}
+.suggestions li[aria-selected="true"]{background:color-mix(in srgb,#1f5fbf 14%,transparent)}
 .error{color:#b42318;font-weight:600;margin-bottom:0.75rem}
-@media(prefers-color-scheme:dark){.error{color:#f97066}}
+@media(prefers-color-scheme:dark){.error{color:#f97066}.combo input{color:#e6eaee;background:#1f262d;border-color:#333c45}.suggestions{background:#1f262d;border-color:#333c45}}
 </style>
 </head>
 <body>
 `)
 }
 
-// writeLookupForm writes the "Look up your address" form, with an
-// optional prefilled value and error message.
+// writeLookupForm writes the "Look up your address" form with Carto
+// autocomplete, and an optional prefilled value and error message.
 func writeLookupForm(b *strings.Builder, value, errMsg string) {
 	b.WriteString(`<div class="card">
 <h2>Look up your address</h2>
@@ -814,13 +819,94 @@ func writeLookupForm(b *strings.Builder, value, errMsg string) {
 		b.WriteString(`</p>
 `)
 	}
-	b.WriteString(`<form class="lookup" action="/a/lookup" method="get">
-<input name="address" type="text" placeholder="1830 Fitzwater St" required value="`)
+	b.WriteString(`<form class="lookup" id="lookup" action="/a/lookup" method="get" autocomplete="off">
+<div class="combo">
+<input id="addr" name="address" type="text" inputmode="search" spellcheck="false"
+  placeholder="1830 Fitzwater St" role="combobox" aria-autocomplete="list"
+  aria-expanded="false" aria-controls="sug" required value="`)
 	htmlEscape(b, value)
 	b.WriteString(`">
+<ul class="suggestions" id="sug" role="listbox" hidden></ul>
+</div>
 <button class="btn" type="submit">Show schedule</button>
 </form>
 </div>
+<script>
+(function(){
+var TYPES={street:'ST',avenue:'AVE',boulevard:'BLVD',drive:'DR',road:'RD',
+  lane:'LN',court:'CT',place:'PL',circle:'CIR',terrace:'TER',
+  parkway:'PKWY',square:'SQ',trail:'TRL'};
+var DIRS={north:'N',south:'S',east:'E',west:'W',
+  northeast:'NE',northwest:'NW',southeast:'SE',southwest:'SW'};
+function norm(s){
+  return s.trim().replace(/\./g,'').split(/\s+/).map(function(w,i){
+    var l=w.toLowerCase();
+    if(DIRS[l])return DIRS[l];
+    if(TYPES[l]&&i>0)return TYPES[l];
+    var m=w.match(/^(\d+)(st|nd|rd|th)$/i);
+    if(m&&i>0)return m[1]+m[2].toUpperCase();
+    return w.toUpperCase();
+  }).join(' ');
+}
+function display(a){
+  return a.split(' ').map(function(w){
+    if(/^(N|S|E|W|NE|NW|SE|SW)$/.test(w))return w;
+    if(/^\d+(ST|ND|RD|TH)$/.test(w))return w.toLowerCase();
+    return w.charAt(0)+w.slice(1).toLowerCase();
+  }).join(' ');
+}
+function prefixes(q){
+  var words=q.trim().split(/\s+/),ps=[norm(words.join(' '))];
+  var last=words[words.length-1].toLowerCase();
+  if(words.length>2&&last.length>=3){
+    var k=Object.keys(TYPES).find(function(t){return t.indexOf(last)===0;});
+    if(k){var ab=norm(words.slice(0,-1).concat(TYPES[k]).join(' '));if(ab!==ps[0])ps.push(ab);}
+  }
+  return ps.map(function(p){return p.replace(/[^A-Z0-9 ,'#/&-]/g,'');}).filter(function(p){return p.length>=3;});
+}
+var input=document.getElementById('addr'),list=document.getElementById('sug');
+var opts=[],active=-1,timer=0,seq=0;
+function close(){list.hidden=true;input.setAttribute('aria-expanded','false');active=-1;}
+function hi(i){
+  active=i;
+  [].forEach.call(list.children,function(li,j){li.setAttribute('aria-selected',String(j===i));});
+}
+function choose(a){input.value=display(a);close();document.getElementById('lookup').submit();}
+function open(addrs){
+  opts=addrs;list.innerHTML='';
+  addrs.forEach(function(a,i){
+    var li=document.createElement('li');li.setAttribute('role','option');
+    li.setAttribute('aria-selected','false');li.textContent=display(a);
+    li.onmousedown=function(e){e.preventDefault();choose(a);};
+    li.onmousemove=function(){hi(i);};
+    list.appendChild(li);
+  });
+  if(!addrs.length){close();return;}
+  list.hidden=false;input.setAttribute('aria-expanded','true');hi(-1);
+}
+input.addEventListener('input',function(){
+  clearTimeout(timer);
+  timer=setTimeout(function(){
+    var ps=prefixes(input.value);if(!ps.length){close();return;}
+    var where=ps.map(function(p){return"UPPER(location) LIKE '"+p.replace(/'/g,"''")+"%%'";}).join(' OR ');
+    var s=++seq;
+    fetch('https://phl.carto.com/api/v2/sql?q='+encodeURIComponent(
+      'SELECT DISTINCT location FROM opa_properties_public WHERE '+where+' ORDER BY location LIMIT 8'
+    )).then(function(r){return r.json();}).then(function(d){
+      if(s===seq)open((d.rows||[]).map(function(r){return r.location;}).filter(Boolean));
+    }).catch(function(){});
+  },250);
+});
+input.addEventListener('keydown',function(e){
+  if(list.hidden)return;
+  if(e.key==='ArrowDown'){e.preventDefault();hi(Math.min(active+1,opts.length-1));}
+  else if(e.key==='ArrowUp'){e.preventDefault();hi(Math.max(active-1,0));}
+  else if(e.key==='Enter'&&active>=0){e.preventDefault();choose(opts[active]);}
+  else if(e.key==='Escape')close();
+});
+input.addEventListener('blur',close);
+})();
+</script>
 `)
 }
 
