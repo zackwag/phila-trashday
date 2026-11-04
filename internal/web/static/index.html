@@ -86,7 +86,6 @@
         </div>
         <p class="actions">
           <a class="button" id="subscribe" href="#">Add to Calendar</a>
-          <button type="button" class="button button-quiet" id="share" hidden>Share</button>
           <a class="text-link" id="json-link" href="#">Schedule as JSON</a>
         </p>
         <p class="note" id="feed-note"></p>
@@ -100,20 +99,24 @@
               <button type="submit" class="button button-quiet">Save address</button>
             </div>
           </form>
-          <div class="save-existing" id="save-existing">
-            <p class="save-status" id="save-status"></p>
-            <p class="actions">
-              <button type="button" class="button button-quiet" id="make-default">Make default</button>
-              <button type="button" class="text-button" id="remove-saved">Remove</button>
-            </p>
-          </div>
+          <p class="save-status" id="save-status" hidden></p>
           <p class="error" id="save-error" role="alert" hidden></p>
+          <details class="manage" id="manage" hidden>
+            <summary class="manage-toggle">Manage addresses</summary>
+            <div class="manage-body">
+              <div class="save-existing" id="save-existing" hidden>
+                <p class="actions">
+                  <button type="button" class="button button-quiet" id="make-default">Make default</button>
+                  <button type="button" class="text-button" id="remove-saved">Remove</button>
+                </p>
+              </div>
+              <div id="saved-block" hidden>
+                <h3 id="saved-heading">Saved addresses</h3>
+                <ul class="saved-list" id="saved-list"></ul>
+              </div>
+            </div>
+          </details>
         </div>
-      </section>
-
-      <section class="block" id="saved-block" aria-labelledby="saved-heading" hidden>
-        <h2 id="saved-heading">Saved addresses</h2>
-        <ul class="saved-list" id="saved-list"></ul>
       </section>
 
       <p class="warnings" id="warnings" hidden></p>

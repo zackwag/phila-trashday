@@ -517,6 +517,43 @@ p {
 
 .save-status {
   max-width: 36rem;
+  color: var(--asphalt-soft);
+}
+
+/* Manage: a collapsible panel for default/remove and the saved list. */
+
+.manage {
+  margin-top: 1rem;
+}
+
+.manage-toggle {
+  font-weight: 700;
+  color: var(--bin-blue);
+  cursor: pointer;
+  list-style: none;
+}
+
+.manage-toggle::-webkit-details-marker {
+  display: none;
+}
+
+.manage-toggle::before {
+  content: "▸ ";
+}
+
+.manage[open] .manage-toggle::before {
+  content: "▾ ";
+}
+
+.manage-body {
+  padding-top: 0.75rem;
+}
+
+.manage-body h3 {
+  font-size: 1.125rem;
+  font-weight: 800;
+  margin-top: 1rem;
+  margin-bottom: 0.5rem;
 }
 
 /* Saved addresses: in the details, and as quick picks under the search. */
