@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.1](https://github.com/zackwag/phila-trashday/compare/v0.6.0...v0.6.1) (2026-11-04)
+
+
+### Bug Fixes
+
+* relative URLs and clean lookup landing page ([#24](https://github.com/zackwag/phila-trashday/issues/24)) ([5f29a89](https://github.com/zackwag/phila-trashday/commit/5f29a8944fe7571a3ae4b731348bbe1938459fcb))
+
 ## [0.6.0](https://github.com/zackwag/phila-trashday/compare/v0.5.0...v0.6.0) (2026-11-04)
 
 
