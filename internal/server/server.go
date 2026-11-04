@@ -526,6 +526,7 @@ func (s *Service) serveJSON(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	s.cfg.Logger.Info("schedule", "address", v.property.Address, "format", "json", "path", r.URL.Path)
 
 	days := v.property.Days
 	out := scheduleJSON{
@@ -617,6 +618,7 @@ func (s *Service) serveLookup(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	s.cfg.Logger.Info("lookup", "address", res.property.Address, "saved_id", id.String(), "new", !ok)
 	http.Redirect(w, r, "/a/"+id.String()+"/schedule.ics", http.StatusSeeOther)
 }
 
@@ -947,9 +949,11 @@ func (s *Service) serveICS(w http.ResponseWriter, r *http.Request) {
 	// A saved address's .ics URL doubles as a shareable link: browsers get
 	// an HTML preview with a subscribe button, calendar clients get the feed.
 	if r.PathValue("id") != "" && wantsHTML(r) {
+		s.cfg.Logger.Info("schedule", "address", v.property.Address, "format", "preview", "path", r.URL.Path)
 		s.serveFeedPage(w, r, v)
 		return
 	}
+	s.cfg.Logger.Info("schedule", "address", v.property.Address, "format", "ics", "path", r.URL.Path)
 	// The URL's reminder wins, then the saved address's. Leaving it out of
 	// a saved address's URL means changing it reaches calendars that
 	// already subscribe.
