@@ -446,6 +446,26 @@ func TestFeedPageContentNegotiation(t *testing.T) {
 	if !strings.Contains(body, "/a/lookup") {
 		t.Error("page missing lookup form")
 	}
+	if !strings.Contains(body, "Remind me") {
+		t.Error("page missing alarm picker")
+	}
+	// Default alarm should be selected.
+	if !strings.Contains(body, `value="20:00" selected`) {
+		t.Error("page missing default alarm selection")
+	}
+
+	// An alarm in the URL overrides the default.
+	req = httptest.NewRequest(http.MethodGet, "/a/"+home.ID+"/schedule.ics?alarm=21:00", nil)
+	req.Header.Set("Accept", "text/html")
+	rec = httptest.NewRecorder()
+	f.svc.Handler().ServeHTTP(rec, req)
+	body = rec.Body.String()
+	if !strings.Contains(body, `value="21:00" selected`) {
+		t.Error("alarm=21:00 not selected")
+	}
+	if !strings.Contains(body, "alarm=21%3A00") && !strings.Contains(body, "alarm=21:00") {
+		t.Error("webcal link missing alarm param")
+	}
 
 	// A calendar client still gets the ICS feed.
 	req = httptest.NewRequest(http.MethodGet, "/a/"+home.ID+"/schedule.ics", nil)

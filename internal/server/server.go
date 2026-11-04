@@ -646,13 +646,37 @@ func wantsHTML(r *http.Request) bool {
 // shows.
 const feedPagePickups = 6
 
+// alarmOptions are the times the preview page's reminder picker offers.
+var alarmOptions = []struct{ Value, Label string }{
+	{"18:00", "6:00 PM"},
+	{"19:00", "7:00 PM"},
+	{"20:00", "8:00 PM"},
+	{"21:00", "9:00 PM"},
+	{"22:00", "10:00 PM"},
+	{"off", "Don’t remind me"},
+}
+
 // serveFeedPage renders a read-only HTML preview of a saved address's
-// schedule, with a webcal:// subscribe button.
+// schedule, with a reminder picker and a webcal:// subscribe button.
 func (s *Service) serveFeedPage(w http.ResponseWriter, r *http.Request, v view) {
-	// Build the webcal:// subscribe URL from the request.
+	// The alarm for the subscribe link: URL param wins, then saved setting.
+	alarm := DefaultAlarm
+	if v.saved != nil {
+		alarm = alarmSetting(*v.saved)
+	}
+	if r.URL.Query().Has("alarm") {
+		if a, err := normalizeAlarm(r.URL.Query().Get("alarm")); err == nil {
+			alarm = a
+		}
+	}
+
+	// Build the webcal:// subscribe URL with the alarm baked in.
 	subURL := *r.URL
 	subURL.Scheme = "webcal"
 	subURL.Host = r.Host
+	q := subURL.Query()
+	q.Set("alarm", alarm)
+	subURL.RawQuery = q.Encode()
 
 	today := schedule.Day(s.cfg.Now().In(s.cfg.Location))
 	upcoming := v.collections
@@ -672,7 +696,7 @@ func (s *Service) serveFeedPage(w http.ResponseWriter, r *http.Request, v view) 
 	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.Header().Set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'none'; base-uri 'none'")
+	w.Header().Set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; frame-ancestors 'none'; base-uri 'none'")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("Referrer-Policy", "no-referrer")
 
@@ -702,9 +726,33 @@ func (s *Service) serveFeedPage(w http.ResponseWriter, r *http.Request, v view) 
 		}
 	}
 	b.WriteString(`</ul>
-<a class="sub" href="`)
+<p class="note">Subscribe once and every pickup shows up, including the ones holidays move.</p>
+<div class="field">
+<label for="alarm">Remind me the night before at</label>
+<select id="alarm">
+`)
+	for _, o := range alarmOptions {
+		b.WriteString(`<option value="`)
+		htmlEscape(&b, o.Value)
+		b.WriteByte('"')
+		if o.Value == alarm {
+			b.WriteString(` selected`)
+		}
+		b.WriteByte('>')
+		htmlEscape(&b, o.Label)
+		b.WriteString("</option>\n")
+	}
+	b.WriteString(`</select>
+</div>
+<a class="sub" id="sub" href="`)
 	htmlEscape(&b, subURL.String())
 	b.WriteString(`">Subscribe in your calendar</a>
+<script>
+document.getElementById('alarm').addEventListener('change',function(){
+  var a=document.getElementById('sub'),u=new URL(a.href);
+  u.searchParams.set('alarm',this.value);a.href=u.toString();
+});
+</script>
 </div>
 `)
 	writeLookupForm(&b, "", "")
@@ -738,9 +786,12 @@ h2{font-size:1.125rem;font-weight:700;margin-bottom:0.5rem}
 .pickup-when{font-weight:700}
 .pickup-what{color:#545e67}
 .moved{font-size:0.875rem;color:#545e67}
+.note{color:#545e67;margin-top:1rem}
+.field{display:flex;flex-wrap:wrap;align-items:center;gap:0.5rem 0.75rem;margin-top:0.75rem}
+.field select{font:inherit;font-weight:600;padding:0.45rem 0.75rem 0.3rem;color:#1e2328;background:#fff;border:2px solid #d5dade;border-radius:0.625rem}
 .sub,.btn{display:inline-block;margin-top:1rem;padding:0.65rem 1.25rem;font:inherit;font-weight:700;color:#eef0f1;background:#1e2328;border:2px solid #1e2328;border-radius:0.625rem;text-decoration:none;cursor:pointer}
 .sub:hover,.btn:hover{background:#1f5fbf;border-color:#1f5fbf}
-@media(prefers-color-scheme:dark){.sub,.btn{color:#161b20;background:#e6eaee;border-color:#e6eaee}.sub:hover,.btn:hover{background:#6c9ce6;border-color:#6c9ce6}}
+@media(prefers-color-scheme:dark){.sub,.btn{color:#161b20;background:#e6eaee;border-color:#e6eaee}.sub:hover,.btn:hover{background:#6c9ce6;border-color:#6c9ce6}.field select{color:#e6eaee;background:#1f262d;border-color:#333c45}}
 .lookup{display:flex;gap:0.5rem;flex-wrap:wrap}
 .lookup input{flex:1 1 14rem;font:inherit;padding:0.65rem 0.85rem;border:2px solid #d5dade;border-radius:0.625rem;background:#fff}
 .error{color:#b42318;font-weight:600;margin-bottom:0.75rem}
