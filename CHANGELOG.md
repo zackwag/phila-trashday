@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.4](https://github.com/zackwag/phila-trashday/compare/v0.6.3...v0.6.4) (2026-11-06)
+
+
+### Miscellaneous Chores
+
+* **deps:** bump reviewdog/action-actionlint from 1.80.8 to 1.81.1 ([#30](https://github.com/zackwag/phila-trashday/issues/30)) ([4e618a3](https://github.com/zackwag/phila-trashday/commit/4e618a33956b25b8260064e4721857d74283d282))
+
 ## [0.6.3](https://github.com/zackwag/phila-trashday/compare/v0.6.2...v0.6.3) (2026-11-04)
 
 
