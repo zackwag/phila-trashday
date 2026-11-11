@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.5](https://github.com/zackwag/phila-trashday/compare/v0.6.4...v0.6.5) (2026-11-11)
+
+
+### Miscellaneous Chores
+
+* fix dependabot commit-message prefixes for conventional commits ([#32](https://github.com/zackwag/phila-trashday/issues/32)) ([4ae9974](https://github.com/zackwag/phila-trashday/commit/4ae99748da3cc3e22cc34c19ca89780b3a0812e6))
+
 ## [0.6.4](https://github.com/zackwag/phila-trashday/compare/v0.6.3...v0.6.4) (2026-11-06)
 
 
